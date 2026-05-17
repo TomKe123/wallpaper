@@ -36,6 +36,7 @@ import "antd/dist/reset.css";
 
 type LocationMode = "browser" | "manual";
 type CountdownScheduleMode = "once" | "cron";
+type SettingsTab = "display" | "countdown" | "quotes" | "location" | "backup";
 type CronVisualFrequency =
   | "minute"
   | "hourly"
@@ -179,6 +180,11 @@ interface MotionButtonProps {
   onClick?: () => void;
 }
 
+interface SettingsTabOption {
+  label: string;
+  value: SettingsTab;
+}
+
 interface CountdownDialogProps {
   countdown: CountdownState;
   onOpenChange: (open: boolean) => void;
@@ -301,6 +307,13 @@ const SCHEDULE_RULE_OPTIONS: Array<{
   { label: "每月", value: "monthly" },
   { label: "每年", value: "yearly" },
   { label: "高级 cron", value: "advanced" }
+];
+const SETTINGS_TAB_OPTIONS: SettingsTabOption[] = [
+  { label: "显示", value: "display" },
+  { label: "倒计时", value: "countdown" },
+  { label: "一言", value: "quotes" },
+  { label: "定位", value: "location" },
+  { label: "备份", value: "backup" }
 ];
 const DEFAULT_QUOTE_CATEGORY = "c";
 const DEFAULT_QUOTE_FILTERS: QuoteFilter[] = [
@@ -1099,6 +1112,8 @@ function SettingsDialog({
   const [scheduleError, setScheduleError] = useState("");
   const [settingsBackupInput, setSettingsBackupInput] = useState("");
   const [settingsBackupMessage, setSettingsBackupMessage] = useState("");
+  const [activeSettingsTab, setActiveSettingsTab] =
+    useState<SettingsTab>("display");
 
   useEffect(() => {
     if (!open) {
@@ -1184,6 +1199,12 @@ function SettingsDialog({
       event.preventDefault();
       commitPageScaleInput();
     }
+  };
+
+  const adjustPageScale = (delta: number) => {
+    const nextScale = normalizePageScale(pageScale + delta);
+    onPageScaleChange(nextScale);
+    setPageScaleInput(String(Math.round(nextScale * 100)));
   };
 
   const handleSourceSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -1321,7 +1342,27 @@ function SettingsDialog({
                   </Dialog.Close>
                 </header>
 
+                <div
+                  className="settings-tabs"
+                  role="tablist"
+                  aria-label="设置分类"
+                >
+                  {SETTINGS_TAB_OPTIONS.map((tab) => (
+                    <button
+                      className={activeSettingsTab === tab.value ? "active" : ""}
+                      key={tab.value}
+                      role="tab"
+                      type="button"
+                      aria-selected={activeSettingsTab === tab.value}
+                      onClick={() => setActiveSettingsTab(tab.value)}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
                 <div className="settings-list">
+                  {activeSettingsTab === "display" && (
                   <section className="settings-block">
                     <div className="settings-block-head">
                       <span className="settings-label">
@@ -1334,16 +1375,15 @@ function SettingsDialog({
                     </div>
 
                     <label className="scale-control">
-                      <input
-                        aria-label="页面缩放大小"
-                        className="scale-slider"
-                        max={MAX_PAGE_SCALE}
-                        min={MIN_PAGE_SCALE}
-                        onChange={(event) => onPageScaleChange(event.target.value)}
-                        step={PAGE_SCALE_STEP}
-                        type="range"
-                        value={pageScale}
-                      />
+                      <button
+                        className="scale-step-btn"
+                        type="button"
+                        aria-label="缩小页面"
+                        disabled={pageScale <= MIN_PAGE_SCALE}
+                        onClick={() => adjustPageScale(-0.05)}
+                      >
+                        -
+                      </button>
                       <span className="scale-number">
                         <input
                           aria-label="手动输入缩放比例"
@@ -1359,9 +1399,20 @@ function SettingsDialog({
                         />
                         <span>%</span>
                       </span>
+                      <button
+                        className="scale-step-btn"
+                        type="button"
+                        aria-label="放大页面"
+                        disabled={pageScale >= MAX_PAGE_SCALE}
+                        onClick={() => adjustPageScale(0.05)}
+                      >
+                        +
+                      </button>
                     </label>
                   </section>
+                  )}
 
+                  {activeSettingsTab === "countdown" && (
                   <section className="settings-block">
                     <div className="settings-block-head">
                       <span className="settings-label">
@@ -1485,12 +1536,19 @@ function SettingsDialog({
                       ]}
                       dataSource={settings.countdownSchedules}
                       locale={{ emptyText: "暂无定时倒计时任务" }}
-                      pagination={false}
+                      pagination={
+                        settings.countdownSchedules.length > 3
+                          ? { pageSize: 3, size: "small" }
+                          : false
+                      }
                       rowKey="id"
                       size="small"
                     />
                   </section>
+                  )}
 
+                  {activeSettingsTab === "quotes" && (
+                  <>
                   <section className="settings-block">
                     <div className="settings-block-head">
                       <span className="settings-label">
@@ -1596,7 +1654,11 @@ function SettingsDialog({
                       )}
                     </div>
                   </section>
+                  </>
+                  )}
 
+                  {activeSettingsTab === "location" && (
+                  <>
                   <section className="settings-block">
                     <div className="settings-block-head">
                       <span className="settings-label">
@@ -1678,7 +1740,10 @@ function SettingsDialog({
                     </span>
                     <MotionButton onClick={onRefreshWeather}>刷新天气</MotionButton>
                   </div>
+                  </>
+                  )}
 
+                  {activeSettingsTab === "backup" && (
                   <section className="settings-block">
                     <div className="settings-block-head">
                       <span className="settings-label">
@@ -1718,6 +1783,7 @@ function SettingsDialog({
                       </MotionButton>
                     </div>
                   </section>
+                  )}
                 </div>
 
                 <div className="settings-actions">

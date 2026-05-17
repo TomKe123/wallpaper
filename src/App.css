@@ -665,10 +665,8 @@ button {
   top: 50%;
   z-index: 11;
   width: min(520px, 100%);
-  max-height: min(720px, calc(100vh - 48px));
-  overflow: auto;
-  scrollbar-gutter: stable;
-  overscroll-behavior: contain;
+  max-height: calc(100vh - 48px);
+  overflow: visible;
   padding: 22px;
   border: 1px solid rgba(255, 255, 255, 0.38);
   border-radius: 18px;
@@ -683,6 +681,33 @@ button {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 18px;
+}
+
+.settings-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.settings-tabs button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 8px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  color: #333;
+  background: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.settings-tabs button.active {
+  color: #fff;
+  border-color: rgba(22, 119, 255, 0.78);
+  background: #1677ff;
 }
 
 .settings-heading {
@@ -746,6 +771,9 @@ button {
 .settings-list {
   display: grid;
   gap: 10px;
+  max-height: none;
+  overflow: visible;
+  overscroll-behavior: contain;
 }
 
 .settings-block {
@@ -855,6 +883,28 @@ button {
 
 .settings-action-btn:hover {
   background: #fff;
+}
+
+.scale-step-btn {
+  min-width: 52px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  color: #191919;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 22px;
+  font-weight: 900;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.scale-step-btn:disabled {
+  cursor: default;
+  opacity: 0.48;
 }
 
 .settings-inline-form {
@@ -1013,18 +1063,9 @@ button {
 
 .scale-control {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 84px;
+  grid-template-columns: auto minmax(92px, 1fr) auto;
   align-items: center;
   gap: 12px;
-}
-
-.scale-slider {
-  width: 100%;
-  min-width: 0;
-  min-height: 44px;
-  accent-color: #202020;
-  cursor: pointer;
-  touch-action: pan-x;
 }
 
 .scale-number {
@@ -1274,6 +1315,17 @@ button {
   border-radius: 12px;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.54);
+}
+
+.countdown-schedule-table .ant-pagination {
+  margin: 8px 8px 10px;
+}
+
+.countdown-schedule-table .ant-pagination-item,
+.countdown-schedule-table .ant-pagination-prev,
+.countdown-schedule-table .ant-pagination-next {
+  min-width: 36px;
+  min-height: 36px;
 }
 
 .countdown-schedule-table .ant-table {
@@ -1822,6 +1874,10 @@ button {
     border-radius: 14px;
   }
 
+  .settings-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .settings-title {
     font-size: 20px;
   }
@@ -1848,6 +1904,15 @@ button {
 
   .settings-inline-form {
     grid-template-columns: minmax(0, 1fr) 96px 42px;
+  }
+
+  .scale-control {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    gap: 8px;
+  }
+
+  .scale-step-btn {
+    min-width: 44px;
   }
 
   .settings-backup-actions {
