@@ -27,11 +27,11 @@ import "antd/dist/reset.css";
 type LocationMode = "browser" | "manual";
 type WeatherStatus = "loading" | "ready" | "error";
 type WeatherIconName = "clear" | "cloudy" | "rain" | "snow";
-type GeocodingPrecision = "city" | "district";
 
 interface WeatherLocation {
   label: string;
   latitude: number;
+  locationKey?: string;
   longitude: number;
   source: string;
 }
@@ -65,10 +65,6 @@ interface HitokotoCategory {
   label: string;
 }
 
-interface LocationSearchResult extends WeatherLocation {
-  precision: GeocodingPrecision;
-}
-
 interface AddressOption {
   value: string;
   label: string;
@@ -79,6 +75,17 @@ interface AddressSelection {
   label: string;
   parts: string[];
   queries: string[];
+}
+
+interface XiaomiLocationCandidate extends WeatherLocation {
+  affiliation: string;
+  key: string;
+  locationKey: string;
+  name: string;
+}
+
+interface XiaomiWeatherResponse {
+  current?: unknown;
 }
 
 interface TimeParts {
@@ -125,11 +132,8 @@ type WallpaperStyle = CSSProperties & {
 
 type AreaDataMap = Record<string, Record<string, string>>;
 
-const WEATHER_API_BASE = "https://api.open-meteo.com/v1/forecast";
-const GEOCODING_API_BASE = "https://geocoding-api.open-meteo.com/v1/search";
-const REVERSE_GEOCODE_API =
-  "https://api.bigdatacloud.net/data/reverse-geocode-client";
-const LOCATION_SEARCH_API = "/api/location-search";
+const XIAOMI_LOCATION_API = "/api/xiaomi-location";
+const XIAOMI_WEATHER_API = "/api/xiaomi-weather";
 const QUOTE_API_BASE = "https://v1.hitokoto.cn";
 const DEFAULT_BACKGROUND =
   "https://www.bing.com/th?id=OHR.SpaceTrails_ZH-CN8377463217_1920x1080.jpg";
@@ -138,6 +142,7 @@ const FALLBACK_BACKGROUND =
 const FALLBACK_LOCATION: WeatherLocation = {
   label: "上海市宝山区",
   latitude: 31.4053,
+  locationKey: "weathercn:101020300",
   longitude: 121.4894,
   source: "fallback"
 };
@@ -276,21 +281,20 @@ function App() {
       nextLocation = await resolveWeatherLocation(settings);
       setLocation(nextLocation);
 
-      const data = await fetchJsonWithTimeout<Record<string, unknown>>(
-        buildWeatherApiUrl(nextLocation),
+      const data = await fetchJsonWithTimeout<XiaomiWeatherResponse>(
+        buildXiaomiWeatherApiUrl(nextLocation),
         3000
       );
-      const current = data.current_weather as
-        | { temperature?: unknown; weathercode?: unknown }
-        | undefined;
+      const current = asRecord(data.current);
+      const temperature = Number(asRecord(current.temperature).value);
 
-      if (!current) {
+      if (!Number.isFinite(temperature)) {
         throw new Error("missing weather");
       }
 
       setWeather({
-        temp: Math.round(Number(current.temperature)),
-        code: Number(current.weathercode || 0),
+        temp: Math.round(temperature),
+        code: Number(current.weather || 0),
         status: "ready"
       });
     } catch (_error) {
@@ -1267,13 +1271,13 @@ function buildAddressQueries(parts: string[]): string[] {
 async function resolveAddressLocation(
   selection: AddressSelection
 ): Promise<WeatherLocation | null> {
-  let bestMatch: LocationSearchResult | null = null;
+  let bestMatch: XiaomiLocationCandidate | null = null;
   let bestScore = -1;
   let lastError: unknown = null;
 
   for (const query of selection.queries) {
     try {
-      const results = await searchLocations(query);
+      const results = await searchXiaomiLocations(query);
       for (const result of results) {
         const score = scoreAddressResult(result, selection.parts);
         if (score > bestScore) {
@@ -1298,14 +1302,17 @@ async function resolveAddressLocation(
     ? {
         label: selection.label,
         latitude: bestMatch.latitude,
+        locationKey: bestMatch.locationKey,
         longitude: bestMatch.longitude,
         source: "manual"
       }
     : null;
 }
 
-function scoreAddressResult(result: LocationSearchResult, parts: string[]): number {
-  const label = normalizeAddressSearchText(result.label);
+function scoreAddressResult(result: XiaomiLocationCandidate, parts: string[]): number {
+  const label = normalizeAddressSearchText(
+    `${result.name}${result.affiliation}${result.label}`
+  );
   const normalizedParts = parts.map(normalizeAddressSearchText).filter(Boolean);
   let score = 0;
 
@@ -1350,15 +1357,13 @@ async function resolveWeatherLocation(settings: AppSettings): Promise<WeatherLoc
       throw new Error("invalid geolocation");
     }
 
-    let label = "当前位置";
-    try {
-      label = (await resolveLocationLabel(latitude, longitude)) || label;
-    } catch (_error) {
-      label = "当前位置";
+    const currentLocation = await resolveXiaomiGeoLocation(latitude, longitude);
+    if (currentLocation) {
+      return currentLocation;
     }
 
     return {
-      label,
+      label: "当前位置",
       latitude,
       longitude,
       source: "client"
@@ -1374,134 +1379,83 @@ function getCurrentPosition(options: PositionOptions): Promise<GeolocationPositi
   });
 }
 
-async function resolveLocationLabel(
+async function resolveXiaomiGeoLocation(
   latitude: number,
   longitude: number
-): Promise<string> {
+): Promise<WeatherLocation | null> {
   const params = new URLSearchParams({
     latitude: String(latitude),
-    longitude: String(longitude),
-    localityLanguage: "zh"
+    longitude: String(longitude)
   });
-  const data = await fetchJsonWithTimeout<Record<string, unknown>>(
-    `${REVERSE_GEOCODE_API}?${params}`,
-    3000
+  const data = await fetchJsonWithTimeout<{ results?: unknown[] }>(
+    `${XIAOMI_LOCATION_API}?${params}`,
+    4000
   );
+  const candidates = parseXiaomiLocationCandidates(data.results);
+  const candidate = candidates[0];
 
-  return formatReverseLocationLabel(data);
+  return candidate
+    ? {
+        label: candidate.label || candidate.name || "当前位置",
+        latitude: candidate.latitude,
+        locationKey: candidate.locationKey,
+        longitude: candidate.longitude,
+        source: "client"
+      }
+    : null;
 }
 
-async function searchLocations(query: string): Promise<LocationSearchResult[]> {
+async function searchXiaomiLocations(query: string): Promise<XiaomiLocationCandidate[]> {
   const params = new URLSearchParams({
     q: query
   });
-  let data: { results?: unknown[] };
-  try {
-    data = await fetchJsonWithTimeout<{ results?: unknown[] }>(
-      `${LOCATION_SEARCH_API}?${params}`,
-      4000
-    );
-  } catch (_error) {
-    data = await fetchJsonWithTimeout<{ results?: unknown[] }>(
-      buildDirectLocationSearchUrl(query),
-      4000
-    );
-  }
-  const results = Array.isArray(data?.results) ? data.results : [];
+  const data = await fetchJsonWithTimeout<{ results?: unknown[] }>(
+    `${XIAOMI_LOCATION_API}?${params}`,
+    4000
+  );
+  return parseXiaomiLocationCandidates(data.results);
+}
 
-  return results
+function parseXiaomiLocationCandidates(results: unknown): XiaomiLocationCandidate[] {
+  return (Array.isArray(results) ? results : [])
     .map((item) => {
       const record = asRecord(item);
+      const locationKey = String(record.locationKey || record.key || "").trim();
+      const latitude = Number(record.latitude);
+      const longitude = Number(record.longitude);
+      const name = cleanLocationPart(record.name);
+      const affiliation = cleanLocationPart(record.affiliation);
+      const label = formatXiaomiLocationLabel(name, affiliation);
       return {
-        label: formatGeocodingLocationLabel(record),
-        latitude: Number(record.latitude),
-        longitude: Number(record.longitude),
-        source: "manual",
-        precision: resolveGeocodingPrecision(record)
+        affiliation,
+        key: String(record.key || locationKey),
+        label,
+        latitude,
+        locationKey,
+        longitude,
+        name,
+        source: "manual"
       };
     })
     .filter(
       (item) =>
+        item.locationKey &&
         item.label &&
-        item.precision === "district" &&
         isFiniteCoordinate(item)
     );
 }
 
-function buildDirectLocationSearchUrl(query: string): string {
-  const params = new URLSearchParams({
-    name: query,
-    count: "8",
-    language: "zh",
-    countryCode: "CN",
-    format: "json"
-  });
-  return `${GEOCODING_API_BASE}?${params}`;
+function formatXiaomiLocationLabel(name: string, affiliation: string): string {
+  const affiliationParts = affiliation
+    .split(/[，,]/)
+    .map(cleanLocationPart)
+    .filter((part) => part && part !== "中国");
+  const parts = [...affiliationParts, name].filter(Boolean);
+  return Array.from(new Set(parts)).join("");
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
-}
-
-function formatReverseLocationLabel(data: Record<string, unknown>): string {
-  const city = cleanLocationPart(data.city);
-  const locality = cleanLocationPart(data.locality);
-  const district = resolveReverseDistrict(data);
-  const principalSubdivision = cleanLocationPart(data.principalSubdivision);
-  const countryName = cleanLocationPart(data.countryName);
-
-  if (city && district && city !== district) {
-    return `${city}${district}`;
-  }
-  if (principalSubdivision && district && principalSubdivision !== district) {
-    return `${principalSubdivision}${district}`;
-  }
-  if (city && locality && city !== locality) {
-    return `${city}${locality}`;
-  }
-  if (city) {
-    return city;
-  }
-  if (locality) {
-    return locality;
-  }
-  if (district && principalSubdivision && district !== principalSubdivision) {
-    return `${principalSubdivision}${district}`;
-  }
-  return district || principalSubdivision || countryName || "";
-}
-
-function formatGeocodingLocationLabel(item: Record<string, unknown>): string {
-  const district = cleanLocationPart(item.admin3 || item.admin2 || item.name);
-  const city = cleanLocationPart(item.admin2 || item.admin1);
-  const province = cleanLocationPart(item.admin1);
-  const parts = [
-    district,
-    city !== district ? city : "",
-    province !== city && province !== district ? province : ""
-  ].filter(Boolean);
-  return Array.from(new Set(parts)).join(" · ");
-}
-
-function resolveReverseDistrict(data: Record<string, unknown>): string {
-  const localityInfo = asRecord(data.localityInfo);
-  const administrative = Array.isArray(localityInfo.administrative)
-    ? localityInfo.administrative.map(asRecord)
-    : [];
-  const districtLike = administrative.find((item) =>
-    /区|县|旗|市辖区|district|county/i.test(String(item.name || ""))
-  );
-
-  return (
-    cleanLocationPart(districtLike?.name) ||
-    cleanLocationPart(data.locality) ||
-    cleanLocationPart(administrative[3]?.name)
-  );
-}
-
-function resolveGeocodingPrecision(item: Record<string, unknown>): GeocodingPrecision {
-  const candidate = `${item.name || ""}${item.admin2 || ""}${item.admin3 || ""}`;
-  return /区|县|旗/.test(candidate) ? "district" : "city";
 }
 
 function cleanLocationPart(value: unknown): string {
@@ -1510,14 +1464,15 @@ function cleanLocationPart(value: unknown): string {
     .trim();
 }
 
-function buildWeatherApiUrl({ latitude, longitude }: WeatherLocation): string {
+function buildXiaomiWeatherApiUrl(location: WeatherLocation): string {
   const params = new URLSearchParams({
-    latitude: String(latitude),
-    longitude: String(longitude),
-    current_weather: "true",
-    timezone: "auto"
+    latitude: String(location.latitude),
+    longitude: String(location.longitude)
   });
-  return `${WEATHER_API_BASE}?${params}`;
+  if (location.locationKey) {
+    params.set("locationKey", location.locationKey);
+  }
+  return `${XIAOMI_WEATHER_API}?${params}`;
 }
 
 function randomLocalQuote(settings: AppSettings, previousQuote?: Quote): Quote {
@@ -1742,6 +1697,7 @@ function normalizeLocation(location: unknown): WeatherLocation | null {
   return {
     label,
     latitude,
+    locationKey: String(record.locationKey || "").trim() || undefined,
     longitude,
     source: String(record.source || "manual")
   };
@@ -1788,13 +1744,17 @@ function resolveWeatherIcon(code: number, status: WeatherStatus): WeatherIconNam
   if (status === "error") {
     return "cloudy";
   }
-  if (code >= 71) {
+  if (code === 7 || code === 8 || code === 22 || code === 23 || code === 24 || code === 25) {
     return "snow";
   }
-  if (code >= 51) {
+  if (
+    (code >= 3 && code <= 6) ||
+    (code >= 9 && code <= 12) ||
+    (code >= 19 && code <= 21)
+  ) {
     return "rain";
   }
-  if (code >= 2) {
+  if (code === 1 || code === 2 || code === 13 || code === 14 || code === 18 || code >= 26) {
     return "cloudy";
   }
   return "clear";
