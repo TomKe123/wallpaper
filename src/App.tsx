@@ -6,11 +6,13 @@ import type {
   ReactNode
 } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Cascader, Select } from "antd";
+import { Alert, Button, Cascader, Input, InputNumber, Select, Switch, Table } from "antd";
 import type { CascaderProps } from "antd";
 import areaData from "china-area-data/data.json";
+import { CronExpressionParser } from "cron-parser";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
+  CalendarClock,
   Cloud,
   CloudRain,
   CloudSnow,
@@ -18,6 +20,8 @@ import {
   Plus,
   RefreshCw,
   Sun,
+  Timer,
+  TimerOff,
   Trash2,
   ZoomIn,
   X
@@ -25,6 +29,17 @@ import {
 import "antd/dist/reset.css";
 
 type LocationMode = "browser" | "manual";
+type CountdownScheduleMode = "once" | "cron";
+type CronVisualFrequency =
+  | "minute"
+  | "hourly"
+  | "daily"
+  | "weekdays"
+  | "weekly"
+  | "weekends"
+  | "monthly"
+  | "yearly";
+type CountdownScheduleRule = "once" | CronVisualFrequency | "advanced";
 type WeatherStatus = "loading" | "ready" | "error";
 type WeatherIconName = "clear" | "cloudy" | "rain" | "snow";
 
@@ -54,7 +69,52 @@ interface QuoteFilter {
   category: string;
 }
 
+interface CountdownState {
+  active: boolean;
+  durationSeconds: number;
+  endsAt: number;
+  label: string;
+  startedAt: number;
+}
+
+interface CountdownSchedule {
+  cron?: string;
+  durationSeconds: number;
+  enabled: boolean;
+  id: string;
+  label: string;
+  lastTriggeredAt?: number;
+  mode: CountdownScheduleMode;
+  nextRunAt: number;
+  startAt?: string;
+  triggeredStartAt?: string;
+}
+
+interface CountdownScheduleDraft {
+  cron?: string;
+  duration: CountdownDurationInput;
+  label: string;
+  mode: CountdownScheduleMode;
+  startAt?: string;
+}
+
+interface CountdownDurationInput {
+  hours: number;
+  minutes: number;
+  seconds: number;
+}
+
+interface CronVisualDraft {
+  dayOfMonth: number;
+  hour: number;
+  minute: number;
+  month: number;
+  weekday: number;
+}
+
 interface AppSettings {
+  countdown: CountdownState;
+  countdownSchedules: CountdownSchedule[];
   locationMode: LocationMode;
   manualLocation: WeatherLocation;
   pageScale: number;
@@ -112,6 +172,14 @@ interface MotionButtonProps {
   onClick?: () => void;
 }
 
+interface CountdownDialogProps {
+  countdown: CountdownState;
+  onOpenChange: (open: boolean) => void;
+  onStart: (duration: CountdownDurationInput, label: string) => void;
+  onStop: () => void;
+  open: boolean;
+}
+
 interface DigitGroupProps {
   value: string;
   firstMax: number;
@@ -128,6 +196,7 @@ interface WeatherIconProps {
 }
 
 type WallpaperStyle = CSSProperties & {
+  "--countdown-progress": string;
   "--page-scale": number;
   "--wallpaper-image": string;
 };
@@ -159,6 +228,38 @@ const MAX_PAGE_SCALE = 1.3;
 const PAGE_SCALE_STEP = 0.01;
 const MIN_QUOTE_REFRESH_MINUTES = 1;
 const MAX_QUOTE_REFRESH_MINUTES = 1440;
+const DEFAULT_COUNTDOWN_LABEL = "倒计时";
+const DEFAULT_COUNTDOWN_SECONDS = 10 * 60;
+const MIN_COUNTDOWN_SECONDS = 1;
+const MAX_COUNTDOWN_SECONDS = 24 * 60 * 60;
+const MAX_COUNTDOWN_HOURS = 24;
+const DEFAULT_COUNTDOWN_DURATION_INPUT: CountdownDurationInput = {
+  hours: 0,
+  minutes: 10,
+  seconds: 0
+};
+const DEFAULT_CRON_VISUAL_DRAFT: CronVisualDraft = {
+  dayOfMonth: 1,
+  hour: 9,
+  minute: 0,
+  month: 1,
+  weekday: 1
+};
+const SCHEDULE_RULE_OPTIONS: Array<{
+  label: string;
+  value: CountdownScheduleRule;
+}> = [
+  { label: "一次性", value: "once" },
+  { label: "每分钟", value: "minute" },
+  { label: "每小时", value: "hourly" },
+  { label: "每天", value: "daily" },
+  { label: "工作日", value: "weekdays" },
+  { label: "每周", value: "weekly" },
+  { label: "周末", value: "weekends" },
+  { label: "每月", value: "monthly" },
+  { label: "每年", value: "yearly" },
+  { label: "高级 cron", value: "advanced" }
+];
 const DEFAULT_QUOTE_CATEGORY = "c";
 const DEFAULT_QUOTE_FILTERS: QuoteFilter[] = [
   { source: "原神", category: DEFAULT_QUOTE_CATEGORY },
@@ -166,6 +267,14 @@ const DEFAULT_QUOTE_FILTERS: QuoteFilter[] = [
   { source: "崩坏3", category: DEFAULT_QUOTE_CATEGORY }
 ];
 const DEFAULT_SETTINGS: AppSettings = {
+  countdown: {
+    active: false,
+    durationSeconds: DEFAULT_COUNTDOWN_SECONDS,
+    endsAt: 0,
+    label: DEFAULT_COUNTDOWN_LABEL,
+    startedAt: 0
+  },
+  countdownSchedules: [],
   locationMode: "browser",
   manualLocation: FALLBACK_LOCATION,
   pageScale: 0.75,
@@ -240,6 +349,10 @@ const WEEKDAYS: string[] = [
   "星期五",
   "星期六"
 ];
+const WEEKDAY_OPTIONS = WEEKDAYS.map((label, value) => ({
+  label,
+  value
+}));
 
 function App() {
   const shouldReduceMotion = useReducedMotion();
@@ -255,9 +368,14 @@ function App() {
   const [isQuoteLoading, setIsQuoteLoading] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(() => readStoredSettings());
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isCountdownDialogOpen, setIsCountdownDialogOpen] = useState(false);
+  const [finishedCountdownLabel, setFinishedCountdownLabel] = useState("");
   const quoteRef = useRef(quote);
   const dateTapCountRef = useRef(0);
   const dateTapTimerRef = useRef<number | undefined>(undefined);
+  const finishedTimerRef = useRef<number | undefined>(undefined);
+  const previousCountdownActiveRef = useRef(settings.countdown.active);
+  const suppressCountdownFinishedRef = useRef(false);
 
   useEffect(() => {
     quoteRef.current = quote;
@@ -365,7 +483,81 @@ function App() {
   }, [settings]);
 
   useEffect(() => {
-    return () => window.clearTimeout(dateTapTimerRef.current);
+    setSettings((previous) => {
+      const nowMs = now.getTime();
+      const didCountdownFinish =
+        previous.countdown.active && previous.countdown.endsAt <= nowMs;
+      const nextCountdown = didCountdownFinish
+          ? {
+              ...previous.countdown,
+              active: false,
+              endsAt: 0,
+              startedAt: 0
+            }
+          : previous.countdown;
+
+      const dueSchedules = previous.countdownSchedules.filter(
+        (schedule) => schedule.enabled && schedule.nextRunAt <= nowMs
+      );
+      const activeSchedule = dueSchedules[dueSchedules.length - 1];
+      const nextSchedules = previous.countdownSchedules.map((schedule) => {
+        if (!dueSchedules.some((dueSchedule) => dueSchedule.id === schedule.id)) {
+          return schedule;
+        }
+        const nextRunAt =
+          schedule.mode === "cron" && schedule.cron
+            ? getNextCronRun(schedule.cron, nowMs + 1000)
+            : Number.POSITIVE_INFINITY;
+        return {
+          ...schedule,
+          lastTriggeredAt: nowMs,
+          nextRunAt
+        };
+      });
+
+      if (!activeSchedule && nextCountdown === previous.countdown) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        countdown: activeSchedule
+          ? createCountdown(
+              secondsToDurationInput(activeSchedule.durationSeconds),
+              activeSchedule.label,
+              nowMs
+            )
+          : nextCountdown,
+        countdownSchedules: nextSchedules
+      };
+    });
+  }, [now]);
+
+  useEffect(() => {
+    const wasActive = previousCountdownActiveRef.current;
+    if (settings.countdown.active) {
+      suppressCountdownFinishedRef.current = false;
+    }
+    if (wasActive && !settings.countdown.active && settings.countdown.label) {
+      if (suppressCountdownFinishedRef.current) {
+        suppressCountdownFinishedRef.current = false;
+      } else {
+        setFinishedCountdownLabel(settings.countdown.label);
+        playCountdownFinishedSound();
+        window.clearTimeout(finishedTimerRef.current);
+        finishedTimerRef.current = window.setTimeout(() => {
+          setFinishedCountdownLabel("");
+        }, 5000);
+      }
+    }
+    previousCountdownActiveRef.current = settings.countdown.active;
+  }, [settings.countdown.active, settings.countdown.label]);
+
+  useEffect(() => {
+    return () => {
+      window.clearTimeout(dateTapTimerRef.current);
+      window.clearTimeout(finishedTimerRef.current);
+    };
   }, []);
 
   const handleDateBarClick = useCallback(() => {
@@ -393,6 +585,18 @@ function App() {
     },
     [handleDateBarClick]
   );
+
+  const handleGreetingClick = useCallback(() => {
+    setIsCountdownDialogOpen(true);
+  }, []);
+
+  const handleGreetingKeyDown = useCallback((event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    setIsCountdownDialogOpen(true);
+  }, []);
 
   const handleLocationModeChange = useCallback((mode: LocationMode) => {
     setSettings((previous) => ({
@@ -480,6 +684,57 @@ function App() {
     }));
   }, []);
 
+  const handleStartCountdown = useCallback((duration: CountdownDurationInput, label: string) => {
+    setSettings((previous) => ({
+      ...previous,
+      countdown: createCountdown(duration, label)
+    }));
+  }, []);
+
+  const handleStopCountdown = useCallback(() => {
+    suppressCountdownFinishedRef.current = true;
+    setSettings((previous) => ({
+      ...previous,
+      countdown: {
+        ...previous.countdown,
+        active: false,
+        endsAt: 0,
+        startedAt: 0
+      }
+    }));
+  }, []);
+
+  const handleAddCountdownSchedule = useCallback(
+    (schedule: CountdownSchedule) => {
+      setSettings((previous) => ({
+        ...previous,
+        countdownSchedules: [
+          ...previous.countdownSchedules,
+          schedule
+        ]
+      }));
+    },
+    []
+  );
+
+  const handleToggleCountdownSchedule = useCallback((id: string) => {
+    setSettings((previous) => ({
+      ...previous,
+      countdownSchedules: previous.countdownSchedules.map((schedule) =>
+        schedule.id === id ? toggleCountdownSchedule(schedule) : schedule
+      )
+    }));
+  }, []);
+
+  const handleRemoveCountdownSchedule = useCallback((id: string) => {
+    setSettings((previous) => ({
+      ...previous,
+      countdownSchedules: previous.countdownSchedules.filter(
+        (schedule) => schedule.id !== id
+      )
+    }));
+  }, []);
+
   const timeParts = useMemo(() => {
     const hours = String(now.getHours()).padStart(2, "0");
     const minutes = String(now.getMinutes()).padStart(2, "0");
@@ -491,7 +746,24 @@ function App() {
     WEEKDAYS[now.getDay()]
   }`;
   const greeting = getGreeting(now.getHours());
+  const countdownRemainingSeconds = getCountdownRemainingSeconds(
+    settings.countdown,
+    now
+  );
+  const countdownRemainingText = formatCountdownRemaining(
+    countdownRemainingSeconds
+  );
+  const isCountdownActive =
+    settings.countdown.active && countdownRemainingSeconds > 0;
+  const countdownProgress = `${getCountdownProgress(
+    settings.countdown,
+    countdownRemainingSeconds
+  )}deg`;
+  const countdownAriaLabel = isCountdownActive
+    ? `${settings.countdown.label} ${countdownRemainingText}`
+    : formatTimeLabel(timeParts);
   const wallpaperStyle: WallpaperStyle = {
+    "--countdown-progress": countdownProgress,
     "--page-scale": settings.pageScale,
     "--wallpaper-image": `url("${escapeCssUrl(backgroundUrl)}")`
   };
@@ -532,24 +804,48 @@ function App() {
         </motion.header>
 
         <motion.div
-          className="clock-main"
-          aria-label={formatTimeLabel(timeParts)}
+          className={`clock-main${isCountdownActive ? " countdown-active" : ""}`}
+          aria-label={countdownAriaLabel}
           initial={shouldReduceMotion ? false : { opacity: 0, y: 12 }}
           animate={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
           transition={{ duration: 0.55, delay: 0.1, ease: "easeOut" }}
         >
-          <DigitGroup value={timeParts.hours} firstMax={2} />
-          <span className="time-separator">:</span>
-          <DigitGroup value={timeParts.minutes} firstMax={5} />
-          <span className="time-separator">:</span>
-          <DigitGroup value={timeParts.seconds} firstMax={5} />
+          {isCountdownActive && (
+            <div className="countdown-badge" aria-live="polite">
+              <span className="countdown-badge-label">
+                {settings.countdown.label}
+              </span>
+              <span className="countdown-badge-time">
+                {countdownRemainingText}
+              </span>
+            </div>
+          )}
+          {isCountdownActive ? (
+            <span className="countdown-main-time">
+              {countdownRemainingText}
+            </span>
+          ) : (
+            <>
+              <DigitGroup value={timeParts.hours} firstMax={2} />
+              <span className="time-separator">:</span>
+              <DigitGroup value={timeParts.minutes} firstMax={5} />
+              <span className="time-separator">:</span>
+              <DigitGroup value={timeParts.seconds} firstMax={5} />
+            </>
+          )}
         </motion.div>
 
         <footer className="footer-content">
           <motion.div
             className="greeting"
+            role="button"
+            tabIndex={0}
+            aria-label="打开倒计时"
+            onClick={handleGreetingClick}
+            onKeyDown={handleGreetingKeyDown}
             initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
             animate={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
+            whileTap={shouldReduceMotion ? undefined : { scale: 0.985 }}
             transition={{ duration: 0.45, delay: 0.18 }}
           >
             {greeting}
@@ -603,24 +899,58 @@ function App() {
         onAddQuoteFilter={handleAddQuoteFilter}
         onRemoveQuoteFilter={handleRemoveQuoteFilter}
         onQuoteFilterCategoryChange={handleQuoteFilterCategoryChange}
+        onOpenCountdownDialog={() => setIsCountdownDialogOpen(true)}
+        onStopCountdown={handleStopCountdown}
+        onAddCountdownSchedule={handleAddCountdownSchedule}
+        onToggleCountdownSchedule={handleToggleCountdownSchedule}
+        onRemoveCountdownSchedule={handleRemoveCountdownSchedule}
       />
+      <CountdownDialog
+        countdown={settings.countdown}
+        open={isCountdownDialogOpen}
+        onOpenChange={setIsCountdownDialogOpen}
+        onStart={handleStartCountdown}
+        onStop={handleStopCountdown}
+      />
+      <AnimatePresence>
+        {finishedCountdownLabel && (
+          <motion.div
+            className="countdown-finished"
+            role="alert"
+            initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.96 }}
+            animate={shouldReduceMotion ? undefined : { opacity: 1, scale: 1 }}
+            exit={shouldReduceMotion ? undefined : { opacity: 0, scale: 1.03 }}
+            transition={{ duration: 0.22 }}
+          >
+            <div>
+              <span>{finishedCountdownLabel}</span>
+              <strong>时间到</strong>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </main>
   );
 }
 
 interface SettingsDialogProps {
   location: WeatherLocation;
+  onAddCountdownSchedule: (schedule: CountdownSchedule) => void;
   onAddQuoteFilter: (source: string, category: string) => void;
   onLocationModeChange: (mode: LocationMode) => void;
   onManualLocationChange: (location: WeatherLocation) => void;
   onOpenChange: (open: boolean) => void;
+  onOpenCountdownDialog: () => void;
   onPageScaleChange: (pageScale: number | string) => void;
   onQuoteFilterCategoryChange: (source: string, category: string) => void;
   onQuoteRefreshMinutesChange: (minutes: number | string) => void;
   onRefreshBackground: () => void;
   onRefreshQuote: () => void;
   onRefreshWeather: () => void;
+  onRemoveCountdownSchedule: (id: string) => void;
   onRemoveQuoteFilter: (source: string) => void;
+  onStopCountdown: () => void;
+  onToggleCountdownSchedule: (id: string) => void;
   open: boolean;
   settings: AppSettings;
   weatherStatus: WeatherStatus;
@@ -628,17 +958,22 @@ interface SettingsDialogProps {
 
 function SettingsDialog({
   location,
+  onAddCountdownSchedule,
   onAddQuoteFilter,
   onLocationModeChange,
   onManualLocationChange,
   onOpenChange,
+  onOpenCountdownDialog,
   onPageScaleChange,
   onQuoteFilterCategoryChange,
   onQuoteRefreshMinutesChange,
   onRefreshBackground,
   onRefreshQuote,
   onRefreshWeather,
+  onRemoveCountdownSchedule,
   onRemoveQuoteFilter,
+  onStopCountdown,
+  onToggleCountdownSchedule,
   open,
   settings,
   weatherStatus
@@ -655,6 +990,18 @@ function SettingsDialog({
   const [locationSearchError, setLocationSearchError] = useState("");
   const [isLocationResolving, setIsLocationResolving] = useState(false);
   const [pageScaleInput, setPageScaleInput] = useState(String(pageScalePercent));
+  const [scheduleLabel, setScheduleLabel] = useState("");
+  const [scheduleDuration, setScheduleDuration] = useState<CountdownDurationInput>(
+    DEFAULT_COUNTDOWN_DURATION_INPUT
+  );
+  const [scheduleRule, setScheduleRule] =
+    useState<CountdownScheduleRule>("once");
+  const [scheduleCronDraft, setScheduleCronDraft] = useState<CronVisualDraft>(
+    DEFAULT_CRON_VISUAL_DRAFT
+  );
+  const [scheduleStartAt, setScheduleStartAt] = useState("");
+  const [scheduleCron, setScheduleCron] = useState("");
+  const [scheduleError, setScheduleError] = useState("");
 
   useEffect(() => {
     if (!open) {
@@ -662,6 +1009,13 @@ function SettingsDialog({
       setSourceCategory(DEFAULT_QUOTE_CATEGORY);
       setLocationSearchError("");
       setIsLocationResolving(false);
+      setScheduleLabel("");
+      setScheduleDuration(DEFAULT_COUNTDOWN_DURATION_INPUT);
+      setScheduleRule("once");
+      setScheduleCronDraft(DEFAULT_CRON_VISUAL_DRAFT);
+      setScheduleStartAt("");
+      setScheduleCron("");
+      setScheduleError("");
     }
   }, [open]);
 
@@ -738,6 +1092,41 @@ function SettingsDialog({
     event.preventDefault();
     onAddQuoteFilter(sourceInput, sourceCategory);
     setSourceInput("");
+  };
+
+  const handleScheduleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const mode: CountdownScheduleMode = scheduleRule === "once" ? "once" : "cron";
+    const normalizedSchedule = createCountdownSchedule({
+      cron:
+        scheduleRule === "advanced"
+          ? scheduleCron
+          : scheduleRule === "once"
+            ? undefined
+            : buildCronFromVisualRule(scheduleRule, scheduleCronDraft),
+      duration: scheduleDuration,
+      label: scheduleLabel,
+      mode,
+      startAt: scheduleStartAt
+    });
+
+    if (!normalizedSchedule) {
+      setScheduleError(
+        mode === "once"
+          ? "请设置一个有效的未来时间。"
+          : "cron 表达式无效，请检查字段、范围或别名。"
+      );
+      return;
+    }
+
+    onAddCountdownSchedule(normalizedSchedule);
+    setScheduleError("");
+    setScheduleLabel("");
+    setScheduleDuration(DEFAULT_COUNTDOWN_DURATION_INPUT);
+    setScheduleRule("once");
+    setScheduleCronDraft(DEFAULT_CRON_VISUAL_DRAFT);
+    setScheduleStartAt("");
+    setScheduleCron("");
   };
 
   const handleDialogInteractOutside = (event: Event) => {
@@ -837,6 +1226,141 @@ function SettingsDialog({
                         <span>%</span>
                       </span>
                     </label>
+                  </section>
+
+                  <section className="settings-block">
+                    <div className="settings-block-head">
+                      <span className="settings-label">
+                        <Timer aria-hidden="true" />
+                        倒计时
+                      </span>
+                      <span className="settings-description">
+                        手动启用倒计时，或按指定时间自动启动
+                      </span>
+                    </div>
+
+                    <div className="countdown-settings-status">
+                      <span>
+                        {settings.countdown.active
+                          ? `${settings.countdown.label} · ${formatCountdownRemaining(
+                              Math.max(
+                                0,
+                                Math.ceil(
+                                  (settings.countdown.endsAt - Date.now()) / 1000
+                                )
+                              )
+                            )}`
+                          : "当前未启用"}
+                      </span>
+                      <div className="countdown-settings-actions">
+                        <MotionButton onClick={onOpenCountdownDialog}>
+                          {settings.countdown.active ? "调整倒计时" : "启用倒计时"}
+                        </MotionButton>
+                        {settings.countdown.active && (
+                          <MotionButton onClick={onStopCountdown}>
+                            停止
+                          </MotionButton>
+                        )}
+                      </div>
+                    </div>
+
+                    <form className="countdown-schedule-form" onSubmit={handleScheduleSubmit}>
+                      <Input
+                        aria-label="定时倒计时文案"
+                        placeholder={DEFAULT_COUNTDOWN_LABEL}
+                        value={scheduleLabel}
+                        onChange={(event) => setScheduleLabel(event.target.value)}
+                      />
+                      <DurationInput
+                        ariaLabelPrefix="定时倒计时"
+                        value={scheduleDuration}
+                        onChange={setScheduleDuration}
+                      />
+                      <Select
+                        aria-label="预约规则"
+                        options={SCHEDULE_RULE_OPTIONS}
+                        value={scheduleRule}
+                        onChange={setScheduleRule}
+                      />
+                      {scheduleRule === "once" ? (
+                        <Input
+                          aria-label="一次性开始时间"
+                          type="datetime-local"
+                          value={scheduleStartAt}
+                          onChange={(event) => setScheduleStartAt(event.target.value)}
+                        />
+                      ) : scheduleRule === "advanced" ? (
+                        <Input
+                          aria-label="高级 cron 表达式"
+                          placeholder="* * * * *"
+                          value={scheduleCron}
+                          onChange={(event) => setScheduleCron(event.target.value)}
+                        />
+                      ) : (
+                        <CronVisualEditor
+                          draft={scheduleCronDraft}
+                          rule={scheduleRule}
+                          onChange={setScheduleCronDraft}
+                        />
+                      )}
+                      <Button htmlType="submit" icon={<CalendarClock aria-hidden="true" />}>
+                        添加任务
+                      </Button>
+                    </form>
+                    {scheduleError && (
+                      <Alert
+                        className="countdown-schedule-alert"
+                        message={scheduleError}
+                        showIcon
+                        type="error"
+                      />
+                    )}
+
+                    <Table<CountdownSchedule>
+                      className="countdown-schedule-table"
+                      columns={[
+                        {
+                          title: "启用",
+                          dataIndex: "enabled",
+                          width: 76,
+                          render: (_enabled, schedule) => (
+                            <Switch
+                              checked={schedule.enabled}
+                              size="small"
+                              onChange={() => onToggleCountdownSchedule(schedule.id)}
+                            />
+                          )
+                        },
+                        {
+                          title: "任务",
+                          dataIndex: "label",
+                          render: (_label, schedule) => (
+                            <span className="schedule-summary">
+                              <strong>{schedule.label}</strong>
+                              <span>{formatScheduleLabel(schedule)}</span>
+                            </span>
+                          )
+                        },
+                        {
+                          title: "",
+                          width: 48,
+                          render: (_value, schedule) => (
+                            <Button
+                              aria-label="删除定时任务"
+                              icon={<Trash2 aria-hidden="true" />}
+                              size="small"
+                              type="text"
+                              onClick={() => onRemoveCountdownSchedule(schedule.id)}
+                            />
+                          )
+                        }
+                      ]}
+                      dataSource={settings.countdownSchedules}
+                      locale={{ emptyText: "暂无定时倒计时任务" }}
+                      pagination={false}
+                      rowKey="id"
+                      size="small"
+                    />
                   </section>
 
                   <section className="settings-block">
@@ -1076,6 +1600,274 @@ function MotionButton({
     >
       {children}
     </motion.button>
+  );
+}
+
+function CountdownDialog({
+  countdown,
+  onOpenChange,
+  onStart,
+  onStop,
+  open
+}: CountdownDialogProps) {
+  const shouldReduceMotion = useReducedMotion();
+  const [label, setLabel] = useState(countdown.label || DEFAULT_COUNTDOWN_LABEL);
+  const [duration, setDuration] = useState<CountdownDurationInput>(
+    secondsToDurationInput(countdown.durationSeconds || DEFAULT_COUNTDOWN_SECONDS)
+  );
+
+  useEffect(() => {
+    if (open) {
+      setLabel(countdown.label || DEFAULT_COUNTDOWN_LABEL);
+      setDuration(
+        secondsToDurationInput(
+          countdown.durationSeconds || DEFAULT_COUNTDOWN_SECONDS
+        )
+      );
+    }
+  }, [countdown.durationSeconds, countdown.label, open]);
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onStart(duration, label);
+    onOpenChange(false);
+  };
+
+  const handleStop = () => {
+    onStop();
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog.Root modal={false} open={open} onOpenChange={onOpenChange}>
+      <AnimatePresence>
+        {open && (
+          <Dialog.Portal forceMount>
+            <Dialog.Overlay asChild forceMount>
+              <motion.div
+                className="settings-layer"
+                initial={shouldReduceMotion ? false : { opacity: 0 }}
+                animate={shouldReduceMotion ? undefined : { opacity: 1 }}
+                exit={shouldReduceMotion ? undefined : { opacity: 0 }}
+                transition={{ duration: 0.18 }}
+              />
+            </Dialog.Overlay>
+            <Dialog.Content asChild forceMount>
+              <motion.section
+                className="settings-panel countdown-dialog"
+                initial={
+                  shouldReduceMotion
+                    ? false
+                    : { opacity: 0, scale: 0.96, x: "-50%", y: "-46%" }
+                }
+                animate={
+                  shouldReduceMotion
+                    ? undefined
+                    : { opacity: 1, scale: 1, x: "-50%", y: "-50%" }
+                }
+                exit={
+                  shouldReduceMotion
+                    ? undefined
+                    : { opacity: 0, scale: 0.96, x: "-50%", y: "-46%" }
+                }
+                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              >
+                <header className="settings-header">
+                  <div className="settings-heading">
+                    <Dialog.Title className="settings-title">
+                      倒计时
+                    </Dialog.Title>
+                    <Dialog.Description className="settings-subtitle">
+                      设置文案和持续时间
+                    </Dialog.Description>
+                  </div>
+                  <Dialog.Close className="settings-icon-btn" aria-label="关闭倒计时设置">
+                    <X aria-hidden="true" />
+                  </Dialog.Close>
+                </header>
+
+                <form className="countdown-dialog-form" onSubmit={handleSubmit}>
+                  <label className="countdown-field">
+                    <span>文案</span>
+                    <input
+                      className="settings-text-input"
+                      maxLength={24}
+                      placeholder={DEFAULT_COUNTDOWN_LABEL}
+                      value={label}
+                      onChange={(event) => setLabel(event.target.value)}
+                    />
+                  </label>
+                  <label className="countdown-field">
+                    <span>时间</span>
+                    <DurationInput
+                      ariaLabelPrefix="手动倒计时"
+                      value={duration}
+                      onChange={setDuration}
+                    />
+                  </label>
+
+                  <div className="settings-actions">
+                    {countdown.active && (
+                      <MotionButton onClick={handleStop}>
+                        <TimerOff aria-hidden="true" />
+                        停止
+                      </MotionButton>
+                    )}
+                    <MotionButton>
+                      <Timer aria-hidden="true" />
+                      启用
+                    </MotionButton>
+                  </div>
+                </form>
+              </motion.section>
+            </Dialog.Content>
+          </Dialog.Portal>
+        )}
+      </AnimatePresence>
+    </Dialog.Root>
+  );
+}
+
+interface DurationInputProps {
+  ariaLabelPrefix: string;
+  onChange: (duration: CountdownDurationInput) => void;
+  value: CountdownDurationInput;
+}
+
+function DurationInput({ ariaLabelPrefix, onChange, value }: DurationInputProps) {
+  const updateDuration = (
+    key: keyof CountdownDurationInput,
+    nextValue: number | string | null
+  ) => {
+    onChange({
+      ...value,
+      [key]: normalizeDurationPart(nextValue, key)
+    });
+  };
+
+  return (
+    <div className="duration-input" aria-label={`${ariaLabelPrefix}持续时间`}>
+      <InputNumber
+        aria-label={`${ariaLabelPrefix}小时`}
+        controls={false}
+        max={MAX_COUNTDOWN_HOURS}
+        min={0}
+        value={value.hours}
+        onChange={(nextValue) => updateDuration("hours", nextValue)}
+      />
+      <span>:</span>
+      <InputNumber
+        aria-label={`${ariaLabelPrefix}分钟`}
+        controls={false}
+        max={59}
+        min={0}
+        value={value.minutes}
+        onChange={(nextValue) => updateDuration("minutes", nextValue)}
+      />
+      <span>:</span>
+      <InputNumber
+        aria-label={`${ariaLabelPrefix}秒`}
+        controls={false}
+        max={59}
+        min={0}
+        value={value.seconds}
+        onChange={(nextValue) => updateDuration("seconds", nextValue)}
+      />
+    </div>
+  );
+}
+
+interface CronVisualEditorProps {
+  draft: CronVisualDraft;
+  onChange: (draft: CronVisualDraft) => void;
+  rule: CronVisualFrequency;
+}
+
+function CronVisualEditor({ draft, onChange, rule }: CronVisualEditorProps) {
+  const updateDraft = (key: keyof CronVisualDraft, value: number | string | null) => {
+    onChange({
+      ...draft,
+      [key]: normalizeCronVisualPart(key, value)
+    });
+  };
+  const cronPreview = buildCronFromVisualRule(rule, draft);
+
+  return (
+    <div className="cron-visual-editor">
+      {rule === "monthly" && (
+        <label>
+          <span>日期</span>
+          <InputNumber
+            aria-label="每月日期"
+            max={31}
+            min={1}
+            value={draft.dayOfMonth}
+            onChange={(value) => updateDraft("dayOfMonth", value)}
+          />
+        </label>
+      )}
+      {rule === "yearly" && (
+        <>
+          <label>
+            <span>月份</span>
+            <InputNumber
+              aria-label="每年月份"
+              max={12}
+              min={1}
+              value={draft.month}
+              onChange={(value) => updateDraft("month", value)}
+            />
+          </label>
+          <label>
+            <span>日期</span>
+            <InputNumber
+              aria-label="每年日期"
+              max={31}
+              min={1}
+              value={draft.dayOfMonth}
+              onChange={(value) => updateDraft("dayOfMonth", value)}
+            />
+          </label>
+        </>
+      )}
+      {rule === "weekly" && (
+        <label>
+          <span>星期</span>
+          <Select
+            aria-label="每周星期"
+            options={WEEKDAY_OPTIONS}
+            value={draft.weekday}
+            onChange={(value) => updateDraft("weekday", value)}
+          />
+        </label>
+      )}
+      {rule !== "minute" && (
+        <label>
+          <span>小时</span>
+          <InputNumber
+            aria-label="触发小时"
+            max={23}
+            min={0}
+            value={draft.hour}
+            onChange={(value) => updateDraft("hour", value)}
+          />
+        </label>
+      )}
+      <label>
+        <span>分钟</span>
+        <InputNumber
+          aria-label="触发分钟"
+          max={59}
+          min={0}
+          value={draft.minute}
+          onChange={(value) => updateDraft("minute", value)}
+        />
+      </label>
+      <div className="cron-preview" aria-label="生成的 cron 表达式">
+        <span>cron</span>
+        <code>{cronPreview}</code>
+      </div>
+    </div>
   );
 }
 
@@ -1629,6 +2421,396 @@ function formatQuoteSource(quote: Quote): string {
   return `——《${from}》${author}`;
 }
 
+function normalizeCountdownLabel(value: unknown): string {
+  return (
+    String(value || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 24) || DEFAULT_COUNTDOWN_LABEL
+  );
+}
+
+function normalizeDurationPart(
+  value: unknown,
+  key: keyof CountdownDurationInput
+): number {
+  const numberValue = Number(value);
+  const maxValue = key === "hours" ? MAX_COUNTDOWN_HOURS : 59;
+  if (!Number.isFinite(numberValue)) {
+    return 0;
+  }
+  return Math.min(maxValue, Math.max(0, Math.round(numberValue)));
+}
+
+function normalizeCronVisualPart(
+  key: keyof CronVisualDraft,
+  value: unknown
+): number {
+  const numberValue = Number(value);
+  const [minValue, maxValue] =
+    key === "month"
+      ? [1, 12]
+      : key === "dayOfMonth"
+        ? [1, 31]
+        : key === "weekday"
+          ? [0, 6]
+          : key === "hour"
+            ? [0, 23]
+            : [0, 59];
+  if (!Number.isFinite(numberValue)) {
+    return minValue;
+  }
+  return Math.min(maxValue, Math.max(minValue, Math.round(numberValue)));
+}
+
+function buildCronFromVisualRule(
+  rule: CronVisualFrequency,
+  draft: CronVisualDraft
+): string {
+  const minute = normalizeCronVisualPart("minute", draft.minute);
+  const hour = normalizeCronVisualPart("hour", draft.hour);
+  const weekday = normalizeCronVisualPart("weekday", draft.weekday);
+  const dayOfMonth = normalizeCronVisualPart("dayOfMonth", draft.dayOfMonth);
+  const month = normalizeCronVisualPart("month", draft.month);
+
+  if (rule === "minute") {
+    return "* * * * *";
+  }
+  if (rule === "hourly") {
+    return `${minute} * * * *`;
+  }
+  if (rule === "daily") {
+    return `${minute} ${hour} * * *`;
+  }
+  if (rule === "weekdays") {
+    return `${minute} ${hour} * * 1-5`;
+  }
+  if (rule === "weekends") {
+    return `${minute} ${hour} * * 0,6`;
+  }
+  if (rule === "weekly") {
+    return `${minute} ${hour} * * ${weekday}`;
+  }
+  if (rule === "monthly") {
+    return `${minute} ${hour} ${dayOfMonth} * *`;
+  }
+  return `${minute} ${hour} ${dayOfMonth} ${month} *`;
+}
+
+function normalizeCountdownDurationInput(
+  value: Partial<CountdownDurationInput>
+): CountdownDurationInput {
+  const totalSeconds =
+    normalizeDurationPart(value.hours, "hours") * 3600 +
+    normalizeDurationPart(value.minutes, "minutes") * 60 +
+    normalizeDurationPart(value.seconds, "seconds");
+  return secondsToDurationInput(clampCountdownSeconds(totalSeconds));
+}
+
+function normalizeCountdownDurationSeconds(value: unknown): number {
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return clampCountdownSeconds(seconds);
+  }
+  return DEFAULT_COUNTDOWN_SECONDS;
+}
+
+function clampCountdownSeconds(value: number): number {
+  return Math.min(
+    MAX_COUNTDOWN_SECONDS,
+    Math.max(MIN_COUNTDOWN_SECONDS, Math.round(value))
+  );
+}
+
+function secondsToDurationInput(seconds: unknown): CountdownDurationInput {
+  const normalizedSeconds = normalizeCountdownDurationSeconds(seconds);
+  const hours = Math.floor(normalizedSeconds / 3600);
+  const minutes = Math.floor((normalizedSeconds % 3600) / 60);
+  const restSeconds = normalizedSeconds % 60;
+  return {
+    hours,
+    minutes,
+    seconds: restSeconds
+  };
+}
+
+function durationInputToSeconds(duration: CountdownDurationInput): number {
+  return clampCountdownSeconds(
+    duration.hours * 3600 + duration.minutes * 60 + duration.seconds
+  );
+}
+
+function createCountdown(
+  duration: CountdownDurationInput,
+  label: unknown,
+  startedAt = Date.now()
+): CountdownState {
+  const normalizedDuration = normalizeCountdownDurationInput(duration);
+  const durationSeconds = durationInputToSeconds(normalizedDuration);
+  return {
+    active: true,
+    durationSeconds,
+    endsAt: startedAt + durationSeconds * 1000,
+    label: normalizeCountdownLabel(label),
+    startedAt
+  };
+}
+
+function createCountdownSchedule(
+  draft: CountdownScheduleDraft
+): CountdownSchedule | null {
+  const nowMs = Date.now();
+  const normalizedDuration = normalizeCountdownDurationInput(draft.duration);
+  const durationSeconds = durationInputToSeconds(normalizedDuration);
+  const label = normalizeCountdownLabel(draft.label);
+
+  if (draft.mode === "once") {
+    const startAt = String(draft.startAt || "").trim();
+    const nextRunAt = new Date(startAt).getTime();
+    if (!startAt || !Number.isFinite(nextRunAt) || nextRunAt <= nowMs) {
+      return null;
+    }
+    return {
+      durationSeconds,
+      enabled: true,
+      id: `schedule-${nowMs}-${Math.random().toString(16).slice(2)}`,
+      label,
+      mode: "once",
+      nextRunAt,
+      startAt
+    };
+  }
+
+  const cron = normalizeCronExpression(draft.cron);
+  if (!cron) {
+    return null;
+  }
+
+  return {
+    cron,
+    durationSeconds,
+    enabled: true,
+    id: `schedule-${nowMs}-${Math.random().toString(16).slice(2)}`,
+    label,
+    mode: "cron",
+    nextRunAt: getNextCronRun(cron, nowMs)
+  };
+}
+
+function toggleCountdownSchedule(schedule: CountdownSchedule): CountdownSchedule {
+  const enabled = !schedule.enabled;
+  return {
+    ...schedule,
+    enabled,
+    nextRunAt: enabled
+      ? getNextScheduleRunAt(schedule, Date.now())
+      : Number.POSITIVE_INFINITY
+  };
+}
+
+function normalizeCountdown(value: unknown): CountdownState {
+  const record = asRecord(value);
+  const durationSeconds = normalizeCountdownDurationSeconds(
+    record.durationSeconds
+  );
+  const startedAt = Number(record.startedAt);
+  const endsAt = Number(record.endsAt);
+  const active =
+    Boolean(record.active) && Number.isFinite(endsAt) && endsAt > Date.now();
+
+  return {
+    active,
+    durationSeconds,
+    endsAt: active ? endsAt : 0,
+    label: normalizeCountdownLabel(record.label),
+    startedAt: active && Number.isFinite(startedAt) ? startedAt : 0
+  };
+}
+
+function normalizeCountdownSchedule(value: unknown): CountdownSchedule | null {
+  const record = asRecord(value);
+  const mode: CountdownScheduleMode = record.mode === "cron" ? "cron" : "once";
+  const startAt = String(record.startAt || "").trim() || undefined;
+  const cron = normalizeCronExpression(record.cron);
+  const enabled = record.enabled !== false;
+  const schedule: CountdownSchedule = {
+    cron: mode === "cron" ? cron || undefined : undefined,
+    durationSeconds: normalizeCountdownDurationSeconds(record.durationSeconds),
+    enabled,
+    id: String(record.id || `schedule-${Date.now()}-${Math.random()}`).trim(),
+    label: normalizeCountdownLabel(record.label),
+    lastTriggeredAt: Number.isFinite(Number(record.lastTriggeredAt))
+      ? Number(record.lastTriggeredAt)
+      : undefined,
+    mode,
+    nextRunAt: Number.POSITIVE_INFINITY,
+    startAt,
+    triggeredStartAt:
+      String(record.triggeredStartAt || "").trim() || undefined
+  };
+
+  if (mode === "cron" && !schedule.cron) {
+    return null;
+  }
+  if (mode === "once" && !startAt) {
+    return null;
+  }
+
+  schedule.nextRunAt = enabled
+    ? getNextScheduleRunAt(schedule, Date.now())
+    : Number.POSITIVE_INFINITY;
+  return schedule;
+}
+
+function normalizeCountdownSchedules(value: unknown): CountdownSchedule[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map(normalizeCountdownSchedule)
+    .filter((item): item is CountdownSchedule => Boolean(item));
+}
+
+function getCountdownRemainingSeconds(
+  countdown: CountdownState,
+  now: Date
+): number {
+  if (!countdown.active || !countdown.endsAt) {
+    return 0;
+  }
+  return Math.max(0, Math.ceil((countdown.endsAt - now.getTime()) / 1000));
+}
+
+function getCountdownProgress(
+  countdown: CountdownState,
+  remainingSeconds: number
+): number {
+  if (!countdown.active || countdown.durationSeconds <= 0) {
+    return 0;
+  }
+  return Math.max(
+    0,
+    Math.min(360, (remainingSeconds / countdown.durationSeconds) * 360)
+  );
+}
+
+function getNextScheduleRunAt(schedule: CountdownSchedule, fromMs: number): number {
+  if (schedule.mode === "cron" && schedule.cron) {
+    return getNextCronRun(schedule.cron, fromMs);
+  }
+  const runAt = new Date(schedule.startAt || "").getTime();
+  return Number.isFinite(runAt) && runAt >= fromMs
+    ? runAt
+    : Number.POSITIVE_INFINITY;
+}
+
+function normalizeCronExpression(value: unknown): string {
+  const expression = String(value || "")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!expression) {
+    return "";
+  }
+  try {
+    CronExpressionParser.parse(expression, {
+      currentDate: new Date()
+    });
+    return expression;
+  } catch (_error) {
+    return "";
+  }
+}
+
+function getNextCronRun(cron: string, fromMs: number): number {
+  const normalizedCron = normalizeCronExpression(cron);
+  if (!normalizedCron) {
+    return Number.POSITIVE_INFINITY;
+  }
+  try {
+    return CronExpressionParser.parse(normalizedCron, {
+      currentDate: new Date(fromMs),
+      hashSeed: normalizedCron
+    })
+      .next()
+      .getTime();
+  } catch (_error) {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+function playCountdownFinishedSound(): void {
+  try {
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioContextClass) {
+      return;
+    }
+    const context = new AudioContextClass();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, context.currentTime);
+    oscillator.frequency.setValueAtTime(660, context.currentTime + 0.16);
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.22, context.currentTime + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.42);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.45);
+  } catch (_error) {
+    // Browser autoplay policies can block audio until the page has user gesture.
+  }
+}
+
+function formatCountdownRemaining(totalSeconds: number): string {
+  const seconds = Math.max(0, totalSeconds);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const restSeconds = seconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(restSeconds).padStart(2, "0")}`;
+  }
+  return `${String(minutes).padStart(2, "0")}:${String(restSeconds).padStart(2, "0")}`;
+}
+
+function formatScheduleLabel(schedule: CountdownSchedule): string {
+  const ruleLabel =
+    schedule.mode === "cron"
+      ? `cron ${schedule.cron}`
+      : formatScheduleTime(schedule.startAt);
+  const nextRunLabel = Number.isFinite(schedule.nextRunAt)
+    ? `下次 ${formatDateTime(schedule.nextRunAt)}`
+    : "不再触发";
+  return ` · ${ruleLabel} · ${nextRunLabel} · ${formatCountdownDuration(schedule.durationSeconds)}`;
+}
+
+function formatCountdownDuration(totalSeconds: number): string {
+  const normalizedSeconds = normalizeCountdownDurationSeconds(totalSeconds);
+  const hours = Math.floor(normalizedSeconds / 3600);
+  const minutes = Math.floor((normalizedSeconds % 3600) / 60);
+  const seconds = normalizedSeconds % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatScheduleTime(value?: string): string {
+  if (!value) {
+    return "未设置时间";
+  }
+  const start = new Date(value);
+  return Number.isNaN(start.getTime()) ? value : formatDateTime(start.getTime());
+}
+
+function formatDateTime(value: number): string {
+  const date = new Date(value);
+  return `${date.getMonth() + 1}/${date.getDate()} ${String(
+    date.getHours()
+  ).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 function readStoredSettings(): AppSettings {
   try {
     const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
@@ -1654,7 +2836,9 @@ function readStoredSettings(): AppSettings {
       ),
       quoteFilters: normalizeQuoteFilters(parsed).length
         ? normalizeQuoteFilters(parsed)
-        : DEFAULT_SETTINGS.quoteFilters
+        : DEFAULT_SETTINGS.quoteFilters,
+      countdown: normalizeCountdown(parsed.countdown),
+      countdownSchedules: normalizeCountdownSchedules(parsed.countdownSchedules)
     };
   } catch (_error) {
     return DEFAULT_SETTINGS;

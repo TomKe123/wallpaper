@@ -4,6 +4,8 @@
   --digit-width: 220px;
   --digit-font-size: 340px;
   --digit-radius: 14px;
+  --countdown-progress: 360deg;
+  --countdown-ring-size: 28px;
   --scrollbar-size: 10px;
   --scrollbar-radius: 999px;
   --scrollbar-track: rgba(5, 5, 5, 0.04);
@@ -16,6 +18,12 @@
   --shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
   font-family: "HarmonyOS Sans SC", "Inter", "PingFang SC", "Microsoft YaHei",
     sans-serif;
+}
+
+@property --countdown-progress {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 360deg;
 }
 
 * {
@@ -202,7 +210,102 @@ button {
   align-items: center;
   gap: 5px;
   padding: 28px 36px;
+  position: relative;
   border-radius: 28px;
+  user-select: none;
+  overflow: hidden;
+  transition:
+    --countdown-progress 900ms linear,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.clock-main.countdown-active {
+  min-width: min(920px, 86vw);
+  min-height: calc(var(--digit-height) + 88px);
+  justify-content: center;
+  padding: 74px 58px 42px;
+  border: var(--countdown-ring-size) solid transparent;
+  border-radius: calc(28px + var(--countdown-ring-size));
+  background:
+    linear-gradient(var(--panel-bg), var(--panel-bg)) padding-box,
+    conic-gradient(
+        from -90deg,
+        rgba(22, 119, 255, 0.96) 0deg var(--countdown-progress),
+        rgba(255, 255, 255, 0.34) var(--countdown-progress) 360deg
+      )
+      border-box;
+  box-shadow:
+    var(--shadow),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.42);
+}
+
+.clock-main.countdown-active::after {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--countdown-ring-size));
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      circle at 50% 50%,
+      transparent calc(100% - var(--countdown-ring-size) - 2px),
+      rgba(255, 255, 255, 0.62) calc(100% - var(--countdown-ring-size)),
+      transparent calc(100% - var(--countdown-ring-size) + 4px)
+    );
+  opacity: 0.76;
+}
+
+.countdown-badge {
+  max-width: calc(100% - 48px);
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  position: absolute;
+  left: 24px;
+  top: 18px;
+  z-index: 1;
+  padding: 0 14px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 999px;
+  color: #171717;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.12);
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.countdown-badge-label,
+.countdown-badge-time {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.countdown-badge-label {
+  max-width: 220px;
+}
+
+.countdown-badge-time {
+  color: #1677ff;
+}
+
+.countdown-main-time {
+  display: block;
+  color: var(--ink);
+  font-size: clamp(120px, 15vw, 280px);
+  font-weight: 930;
+  line-height: 0.94;
+  letter-spacing: 0;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .digit-group {
@@ -269,6 +372,25 @@ button {
   font-weight: 600;
   letter-spacing: 8px;
   white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+  transition:
+    background 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.greeting:hover {
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow:
+    var(--shadow),
+    0 0 0 1px rgba(255, 255, 255, 0.46);
+}
+
+.greeting:focus-visible {
+  box-shadow:
+    var(--shadow),
+    0 0 0 3px rgba(255, 255, 255, 0.72);
 }
 
 .quote-shell {
@@ -744,6 +866,275 @@ button {
   font-weight: 700;
 }
 
+.countdown-settings-status {
+  display: grid;
+  gap: 10px;
+  color: var(--ink-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.countdown-settings-status > span {
+  color: #242424;
+  font-size: 14px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.countdown-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.countdown-schedule-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(132px, 0.62fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.countdown-schedule-form .ant-input,
+.countdown-schedule-form .ant-input-number,
+.countdown-schedule-form .ant-select-selector,
+.countdown-schedule-form .ant-btn {
+  min-height: 38px;
+  border-color: rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: none;
+}
+
+.countdown-schedule-form .ant-input-number {
+  width: 100%;
+}
+
+.duration-input {
+  min-width: 0;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.duration-input .ant-input-number {
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.duration-input .ant-input-number-input {
+  height: 36px;
+  padding: 0;
+  text-align: center;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.duration-input > span {
+  color: var(--ink-muted);
+  font-weight: 900;
+}
+
+.countdown-schedule-form > .ant-select,
+.countdown-schedule-form > .ant-picker,
+.countdown-schedule-form > .duration-input,
+.countdown-schedule-form > .cron-visual-editor,
+.countdown-schedule-form > .ant-input:nth-of-type(2) {
+  grid-column: 1 / -1;
+}
+
+.countdown-schedule-form > .ant-btn {
+  grid-column: 1 / -1;
+}
+
+.countdown-schedule-form .ant-select-selector {
+  height: 38px !important;
+}
+
+.countdown-schedule-form .ant-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #191919;
+  font-weight: 750;
+}
+
+.cron-visual-editor {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.cron-visual-editor label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.cron-visual-editor .ant-input-number,
+.cron-visual-editor .ant-select {
+  width: 100%;
+}
+
+.cron-visual-editor .ant-input-number,
+.cron-visual-editor .ant-select-selector {
+  min-height: 36px;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+  border-radius: 9px !important;
+  background: rgba(255, 255, 255, 0.76) !important;
+  box-shadow: none !important;
+}
+
+.cron-preview {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.cron-preview code {
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  color: #202020;
+  background: rgba(0, 0, 0, 0.06);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.countdown-schedule-alert {
+  border-radius: 10px;
+}
+
+.countdown-schedule-table {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.54);
+}
+
+.countdown-schedule-table .ant-table {
+  background: transparent;
+}
+
+.countdown-schedule-table .ant-table-thead > tr > th {
+  color: #242424;
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.countdown-schedule-table .ant-table-tbody > tr > td {
+  background: rgba(255, 255, 255, 0.36);
+}
+
+.countdown-schedule-table .ant-table-tbody > tr:hover > td {
+  background: rgba(255, 255, 255, 0.74) !important;
+}
+
+.schedule-summary {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.schedule-summary strong {
+  color: #202020;
+  font-size: 13px;
+  font-weight: 820;
+}
+
+.schedule-summary span {
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.countdown-dialog {
+  width: min(420px, 100%);
+}
+
+.countdown-dialog-form {
+  display: grid;
+  gap: 12px;
+}
+
+.countdown-field {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.countdown-finished {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  color: #fff;
+  background: rgba(12, 12, 12, 0.84);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.countdown-finished > div {
+  width: min(760px, 100%);
+  min-height: 320px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.32);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.2), transparent 46%),
+    rgba(255, 255, 255, 0.08);
+  box-shadow: 0 36px 120px rgba(0, 0, 0, 0.44);
+  text-align: center;
+}
+
+.countdown-finished span {
+  max-width: calc(100% - 48px);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: clamp(22px, 4vw, 44px);
+  font-weight: 760;
+  overflow-wrap: anywhere;
+}
+
+.countdown-finished strong {
+  color: #fff;
+  font-size: clamp(66px, 13vw, 150px);
+  font-weight: 950;
+  line-height: 0.95;
+  letter-spacing: 0;
+}
+
 .source-chip-list {
   min-height: 30px;
   display: flex;
@@ -910,6 +1301,7 @@ button {
     --digit-width: 140px;
     --digit-font-size: 180px;
     --digit-radius: 10px;
+    --countdown-ring-size: 20px;
   }
 
   .clock-container {
@@ -919,6 +1311,24 @@ button {
   .clock-main {
     padding: 18px 24px;
     border-radius: 20px;
+  }
+
+  .clock-main.countdown-active {
+    min-height: calc(var(--digit-height) + 62px);
+    padding: 58px 38px 30px;
+    border-radius: calc(20px + var(--countdown-ring-size));
+  }
+
+  .countdown-badge {
+    min-height: 34px;
+    left: 16px;
+    top: 12px;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+
+  .countdown-main-time {
+    font-size: clamp(88px, 14vw, 180px);
   }
 
   .time-separator {
@@ -970,6 +1380,7 @@ button {
     --digit-width: 88px;
     --digit-font-size: 112px;
     --digit-radius: 8px;
+    --countdown-ring-size: 12px;
   }
 
   .wallpaper {
@@ -986,6 +1397,30 @@ button {
     padding: 12px 14px;
     border-radius: 16px;
     gap: 2px;
+  }
+
+  .clock-main.countdown-active {
+    min-width: min(520px, 100%);
+    min-height: 190px;
+    padding: 44px 18px 22px;
+    border-radius: calc(16px + var(--countdown-ring-size));
+  }
+
+  .countdown-badge {
+    min-height: 28px;
+    left: 10px;
+    top: 8px;
+    gap: 6px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  .countdown-badge-label {
+    max-width: 120px;
+  }
+
+  .countdown-main-time {
+    font-size: clamp(58px, 17vw, 116px);
   }
 
   .info-header {
@@ -1099,6 +1534,14 @@ button {
     grid-template-columns: minmax(0, 1fr) 96px 42px;
   }
 
+  .countdown-schedule-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cron-visual-editor {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .settings-inline-form .settings-action-btn {
     width: 42px;
     padding: 0;
@@ -1123,6 +1566,7 @@ button {
     --digit-width: 53px;
     --digit-font-size: 70px;
     --digit-radius: 7px;
+    --countdown-ring-size: 8px;
   }
 
   .wallpaper {
@@ -1131,6 +1575,35 @@ button {
 
   .clock-main {
     padding: 10px;
+  }
+
+  .clock-main.countdown-active {
+    min-height: 124px;
+    padding: 34px 12px 16px;
+  }
+
+  .countdown-badge {
+    max-width: calc(100% - 20px);
+    min-height: 24px;
+    font-size: 10px;
+  }
+
+  .countdown-main-time {
+    font-size: clamp(42px, 18vw, 72px);
+  }
+
+  .duration-input {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+    padding: 0 6px;
+  }
+
+  .cron-visual-editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .countdown-finished > div {
+    min-height: 240px;
+    border-radius: 16px;
   }
 
   .time-separator {
