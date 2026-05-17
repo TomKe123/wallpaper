@@ -534,6 +534,34 @@ button {
   box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.1);
 }
 
+.address-cascader {
+  width: 100%;
+}
+
+.address-cascader .ant-select-selector {
+  min-height: 38px;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+  border-radius: 10px !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+  box-shadow: none !important;
+}
+
+.address-cascader.ant-select-focused .ant-select-selector {
+  border-color: rgba(0, 0, 0, 0.26) !important;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.1) !important;
+}
+
+.address-cascader-popup .ant-cascader-menu {
+  max-height: min(320px, 52vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.address-cascader-popup {
+  z-index: 30;
+  pointer-events: auto;
+}
+
 .scale-control {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 84px;
@@ -713,44 +741,9 @@ button {
   overflow-wrap: anywhere;
 }
 
-.location-results {
-  display: grid;
-  gap: 7px;
-}
-
-.location-result {
-  width: 100%;
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 10px;
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  border-radius: 10px;
-  color: #222;
-  background: rgba(255, 255, 255, 0.62);
-  cursor: pointer;
-  text-align: left;
-}
-
-.location-result:hover,
 .source-chip:hover,
 .source-chip button:hover {
   background: #fff;
-}
-
-.location-result span {
-  min-width: 0;
-  font-size: 14px;
-  font-weight: 760;
-  overflow-wrap: anywhere;
-}
-
-.location-result small {
-  flex: 0 0 auto;
-  color: var(--ink-muted);
-  font-size: 12px;
 }
 
 @keyframes fade-in {
@@ -971,15 +964,10 @@ button {
     padding: 0;
   }
 
-  .location-current,
-  .location-result {
+  .location-current {
     align-items: flex-start;
     flex-direction: column;
     gap: 4px;
-  }
-
-  .location-result small {
-    flex: 0 1 auto;
   }
 
   .location-current strong {

@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+  CSSProperties,
+  FormEvent,
+  KeyboardEvent,
+  ReactNode
+} from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { Cascader } from "antd";
+import type { CascaderProps } from "antd";
+import areaData from "china-area-data/data.json";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   Cloud,
@@ -8,12 +17,113 @@ import {
   MapPin,
   Plus,
   RefreshCw,
-  Search,
   Sun,
   Trash2,
   ZoomIn,
   X
 } from "lucide-react";
+import "antd/dist/reset.css";
+
+type LocationMode = "browser" | "manual";
+type WeatherStatus = "loading" | "ready" | "error";
+type WeatherIconName = "clear" | "cloudy" | "rain" | "snow";
+type GeocodingPrecision = "city" | "district";
+
+interface WeatherLocation {
+  label: string;
+  latitude: number;
+  longitude: number;
+  source: string;
+}
+
+interface WeatherState {
+  temp: number | null;
+  code: number;
+  status: WeatherStatus;
+}
+
+interface Quote {
+  text: string;
+  source: string;
+}
+
+interface QuoteFilter {
+  source: string;
+  category: string;
+}
+
+interface AppSettings {
+  locationMode: LocationMode;
+  manualLocation: WeatherLocation;
+  pageScale: number;
+  quoteRefreshMinutes: number;
+  quoteFilters: QuoteFilter[];
+}
+
+interface HitokotoCategory {
+  code: string;
+  label: string;
+}
+
+interface LocationSearchResult extends WeatherLocation {
+  precision: GeocodingPrecision;
+}
+
+interface AddressOption {
+  value: string;
+  label: string;
+  children?: AddressOption[];
+}
+
+interface AddressSelection {
+  label: string;
+  parts: string[];
+  queries: string[];
+}
+
+interface TimeParts {
+  hours: string;
+  minutes: string;
+  seconds: string;
+}
+
+interface IconButtonProps {
+  children: ReactNode;
+  className?: string;
+  label: string;
+  onClick: () => void;
+  spin?: boolean;
+  title?: string;
+}
+
+interface MotionButtonProps {
+  ariaLabel?: string;
+  children: ReactNode;
+  disabled?: boolean;
+  onClick?: () => void;
+}
+
+interface DigitGroupProps {
+  value: string;
+  firstMax: number;
+}
+
+interface RollingDigitProps {
+  value: number;
+  max: number;
+}
+
+interface WeatherIconProps {
+  code: number;
+  status: WeatherStatus;
+}
+
+type WallpaperStyle = CSSProperties & {
+  "--page-scale": number;
+  "--wallpaper-image": string;
+};
+
+type AreaDataMap = Record<string, Record<string, string>>;
 
 const WEATHER_API_BASE = "https://api.open-meteo.com/v1/forecast";
 const GEOCODING_API_BASE = "https://geocoding-api.open-meteo.com/v1/search";
@@ -25,13 +135,13 @@ const DEFAULT_BACKGROUND =
   "https://www.bing.com/th?id=OHR.SpaceTrails_ZH-CN8377463217_1920x1080.jpg";
 const FALLBACK_BACKGROUND =
   "https://bing.biturl.top/?resolution=1920&format=image&index=0&mkt=zh-CN";
-const FALLBACK_LOCATION = {
+const FALLBACK_LOCATION: WeatherLocation = {
   label: "上海市宝山区",
   latitude: 31.4053,
   longitude: 121.4894,
   source: "fallback"
 };
-const GEOLOCATION_OPTIONS = {
+const GEOLOCATION_OPTIONS: PositionOptions = {
   enableHighAccuracy: false,
   timeout: 6000,
   maximumAge: 15 * 60 * 1000
@@ -43,12 +153,12 @@ const PAGE_SCALE_STEP = 0.01;
 const MIN_QUOTE_REFRESH_MINUTES = 1;
 const MAX_QUOTE_REFRESH_MINUTES = 1440;
 const DEFAULT_QUOTE_CATEGORY = "c";
-const DEFAULT_QUOTE_FILTERS = [
+const DEFAULT_QUOTE_FILTERS: QuoteFilter[] = [
   { source: "原神", category: DEFAULT_QUOTE_CATEGORY },
   { source: "崩坏：星穹铁道", category: DEFAULT_QUOTE_CATEGORY },
   { source: "崩坏3", category: DEFAULT_QUOTE_CATEGORY }
 ];
-const DEFAULT_SETTINGS = {
+const DEFAULT_SETTINGS: AppSettings = {
   locationMode: "browser",
   manualLocation: FALLBACK_LOCATION,
   pageScale: 1,
@@ -58,7 +168,7 @@ const DEFAULT_SETTINGS = {
 const MAX_QUOTE_FETCH_ATTEMPTS = 8;
 const QUOTE_RETRY_DELAY_MS = 250;
 const QUOTE_API_TIMEOUT_MS = 1800;
-const HITOKOTO_CATEGORIES = [
+const HITOKOTO_CATEGORIES: HitokotoCategory[] = [
   { code: "a", label: "动画" },
   { code: "b", label: "漫画" },
   { code: "c", label: "游戏" },
@@ -72,8 +182,12 @@ const HITOKOTO_CATEGORIES = [
   { code: "k", label: "哲学" },
   { code: "l", label: "抖机灵" }
 ];
+const CHINA_AREA_DATA = areaData as AreaDataMap;
+const ADDRESS_ROOT_CODE = "86";
+const GENERIC_ADDRESS_LABELS = new Set(["市辖区", "县", "省直辖县级行政区划"]);
+const ADDRESS_OPTIONS = buildAddressOptions();
 
-const LOCAL_QUOTES = [
+const LOCAL_QUOTES: Quote[] = [
   { text: "旅途的意义，就是不断遇见新的风景。", source: "原神" },
   { text: "当你重新踏上旅途之后，一定要记得旅途本身的意义。", source: "原神" },
   { text: "风带来了故事的种子，时间使其发芽。", source: "原神" },
@@ -106,7 +220,7 @@ const LOCAL_QUOTES = [
   { text: "每一天都是崭新的冒险。", source: "绝区零" }
 ];
 
-const WEEKDAYS = [
+const WEEKDAYS: string[] = [
   "星期日",
   "星期一",
   "星期二",
@@ -120,19 +234,19 @@ function App() {
   const shouldReduceMotion = useReducedMotion();
   const [now, setNow] = useState(() => new Date());
   const [backgroundUrl, setBackgroundUrl] = useState(DEFAULT_BACKGROUND);
-  const [weather, setWeather] = useState({
+  const [weather, setWeather] = useState<WeatherState>({
     temp: null,
     code: 0,
     status: "loading"
   });
-  const [location, setLocation] = useState(FALLBACK_LOCATION);
+  const [location, setLocation] = useState<WeatherLocation>(FALLBACK_LOCATION);
   const [quote, setQuote] = useState(() => randomLocalQuote(DEFAULT_SETTINGS));
   const [isQuoteLoading, setIsQuoteLoading] = useState(false);
-  const [settings, setSettings] = useState(() => readStoredSettings());
+  const [settings, setSettings] = useState<AppSettings>(() => readStoredSettings());
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const quoteRef = useRef(quote);
   const dateTapCountRef = useRef(0);
-  const dateTapTimerRef = useRef(null);
+  const dateTapTimerRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     quoteRef.current = quote;
@@ -156,24 +270,26 @@ function App() {
   }, [settings]);
 
   const refreshWeather = useCallback(async () => {
-    let nextLocation = null;
+    let nextLocation: WeatherLocation | null = null;
 
     try {
       nextLocation = await resolveWeatherLocation(settings);
       setLocation(nextLocation);
 
-      const data = await fetchJsonWithTimeout(
+      const data = await fetchJsonWithTimeout<Record<string, unknown>>(
         buildWeatherApiUrl(nextLocation),
         3000
       );
-      const current = data?.current_weather;
+      const current = data.current_weather as
+        | { temperature?: unknown; weathercode?: unknown }
+        | undefined;
 
       if (!current) {
         throw new Error("missing weather");
       }
 
       setWeather({
-        temp: Math.round(current.temperature),
+        temp: Math.round(Number(current.temperature)),
         code: Number(current.weathercode || 0),
         status: "ready"
       });
@@ -191,7 +307,10 @@ function App() {
 
   const refreshBackground = useCallback(async () => {
     try {
-      const data = await fetchJsonWithTimeout("/api/bing-image", 3000);
+      const data = await fetchJsonWithTimeout<{ url?: unknown }>(
+        "/api/bing-image",
+        3000
+      );
       const url = String(data?.url || "").trim();
       setBackgroundUrl(url || FALLBACK_BACKGROUND);
     } catch (_error) {
@@ -200,7 +319,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    let timerId;
+    let timerId: number | undefined;
 
     const tick = () => {
       const next = new Date();
@@ -255,7 +374,7 @@ function App() {
   }, []);
 
   const handleDateBarKeyDown = useCallback(
-    (event) => {
+    (event: KeyboardEvent<HTMLElement>) => {
       if (event.key !== "Enter" && event.key !== " ") {
         return;
       }
@@ -265,14 +384,14 @@ function App() {
     [handleDateBarClick]
   );
 
-  const handleLocationModeChange = useCallback((mode) => {
+  const handleLocationModeChange = useCallback((mode: LocationMode) => {
     setSettings((previous) => ({
       ...previous,
       locationMode: mode
     }));
   }, []);
 
-  const handleManualLocationChange = useCallback((manualLocation) => {
+  const handleManualLocationChange = useCallback((manualLocation: WeatherLocation) => {
     const normalized = normalizeLocation(manualLocation);
     if (!normalized) return;
 
@@ -294,21 +413,21 @@ function App() {
     }
   }, [settings.locationMode, settings.manualLocation]);
 
-  const handlePageScaleChange = useCallback((pageScale) => {
+  const handlePageScaleChange = useCallback((pageScale: number | string) => {
     setSettings((previous) => ({
       ...previous,
       pageScale: normalizePageScale(pageScale)
     }));
   }, []);
 
-  const handleQuoteRefreshMinutesChange = useCallback((minutes) => {
+  const handleQuoteRefreshMinutesChange = useCallback((minutes: number | string) => {
     setSettings((previous) => ({
       ...previous,
       quoteRefreshMinutes: normalizeQuoteRefreshMinutes(minutes)
     }));
   }, []);
 
-  const handleAddQuoteFilter = useCallback((source, category) => {
+  const handleAddQuoteFilter = useCallback((source: string, category: string) => {
     const normalized = cleanQuoteSource(source);
     if (!normalized) return;
     const normalizedCategory = normalizeQuoteCategory(category) || DEFAULT_QUOTE_CATEGORY;
@@ -328,7 +447,7 @@ function App() {
     });
   }, []);
 
-  const handleRemoveQuoteFilter = useCallback((source) => {
+  const handleRemoveQuoteFilter = useCallback((source: string) => {
     setSettings((previous) => ({
       ...previous,
       quoteFilters: normalizeQuoteFilters(previous).filter(
@@ -337,7 +456,7 @@ function App() {
     }));
   }, []);
 
-  const handleQuoteFilterCategoryChange = useCallback((source, category) => {
+  const handleQuoteFilterCategoryChange = useCallback((source: string, category: string) => {
     setSettings((previous) => ({
       ...previous,
       quoteFilters: normalizeQuoteFilters(previous).map((item) =>
@@ -362,26 +481,26 @@ function App() {
     WEEKDAYS[now.getDay()]
   }`;
   const greeting = getGreeting(now.getHours());
-  const shellMotion = shouldReduceMotion
-    ? {}
-    : {
-        initial: { opacity: 0 },
-        animate: { opacity: 1 },
-        transition: { duration: 0.65, ease: [0.22, 1, 0.36, 1] }
-      };
+  const wallpaperStyle: WallpaperStyle = {
+    "--page-scale": settings.pageScale,
+    "--wallpaper-image": `url("${escapeCssUrl(backgroundUrl)}")`
+  };
 
   return (
     <main
       className="wallpaper"
-      style={{
-        "--page-scale": settings.pageScale,
-        "--wallpaper-image": `url("${escapeCssUrl(backgroundUrl)}")`
-      }}
+      style={wallpaperStyle}
     >
       <motion.section
         className="clock-container"
         aria-label="滚动时钟壁纸"
-        {...shellMotion}
+        initial={shouldReduceMotion ? false : { opacity: 0 }}
+        animate={shouldReduceMotion ? undefined : { opacity: 1 }}
+        transition={
+          shouldReduceMotion
+            ? undefined
+            : { duration: 0.65, ease: [0.22, 1, 0.36, 1] }
+        }
       >
         <motion.header
           className="info-header"
@@ -479,6 +598,24 @@ function App() {
   );
 }
 
+interface SettingsDialogProps {
+  location: WeatherLocation;
+  onAddQuoteFilter: (source: string, category: string) => void;
+  onLocationModeChange: (mode: LocationMode) => void;
+  onManualLocationChange: (location: WeatherLocation) => void;
+  onOpenChange: (open: boolean) => void;
+  onPageScaleChange: (pageScale: number | string) => void;
+  onQuoteFilterCategoryChange: (source: string, category: string) => void;
+  onQuoteRefreshMinutesChange: (minutes: number | string) => void;
+  onRefreshBackground: () => void;
+  onRefreshQuote: () => void;
+  onRefreshWeather: () => void;
+  onRemoveQuoteFilter: (source: string) => void;
+  open: boolean;
+  settings: AppSettings;
+  weatherStatus: WeatherStatus;
+}
+
 function SettingsDialog({
   location,
   onAddQuoteFilter,
@@ -495,7 +632,7 @@ function SettingsDialog({
   open,
   settings,
   weatherStatus
-}) {
+}: SettingsDialogProps) {
   const shouldReduceMotion = useReducedMotion();
   const pageScale = normalizePageScale(settings.pageScale);
   const pageScalePercent = Math.round(pageScale * 100);
@@ -505,20 +642,16 @@ function SettingsDialog({
   const quoteFilters = normalizeQuoteFilters(settings);
   const [sourceInput, setSourceInput] = useState("");
   const [sourceCategory, setSourceCategory] = useState(DEFAULT_QUOTE_CATEGORY);
-  const [locationQuery, setLocationQuery] = useState("");
-  const [locationResults, setLocationResults] = useState([]);
   const [locationSearchError, setLocationSearchError] = useState("");
-  const [isLocationSearching, setIsLocationSearching] = useState(false);
+  const [isLocationResolving, setIsLocationResolving] = useState(false);
   const [pageScaleInput, setPageScaleInput] = useState(String(pageScalePercent));
 
   useEffect(() => {
     if (!open) {
       setSourceInput("");
       setSourceCategory(DEFAULT_QUOTE_CATEGORY);
-      setLocationQuery("");
-      setLocationResults([]);
       setLocationSearchError("");
-      setIsLocationSearching(false);
+      setIsLocationResolving(false);
     }
   }, [open]);
 
@@ -526,33 +659,35 @@ function SettingsDialog({
     setPageScaleInput(String(pageScalePercent));
   }, [pageScalePercent]);
 
-  const handleLocationSearch = async (event) => {
-    event.preventDefault();
-    const query = locationQuery.trim();
-    if (query.length < 2) {
-      setLocationSearchError("请输入至少两个字符");
-      setLocationResults([]);
+  const handleAddressChange: CascaderProps<AddressOption, "value">["onChange"] = async (
+    _value,
+    selectedOptions
+  ) => {
+    const selection = formatAddressSelection(selectedOptions);
+    if (!selection) {
       return;
     }
 
-    setIsLocationSearching(true);
+    setIsLocationResolving(true);
     setLocationSearchError("");
 
     try {
-      const results = await searchLocations(query);
-      setLocationResults(results);
-      if (!results.length) {
-        setLocationSearchError("没有找到匹配地点");
+      const result = await resolveAddressLocation(selection);
+      if (!result) {
+        setLocationSearchError("没有找到该区县的天气位置");
+        return;
       }
+      onManualLocationChange(result);
     } catch (_error) {
-      setLocationResults([]);
-      setLocationSearchError("地点搜索暂不可用");
+      setLocationSearchError("地点解析暂不可用");
     } finally {
-      setIsLocationSearching(false);
+      setIsLocationResolving(false);
     }
   };
 
-  const handlePageScaleInputChange = (event) => {
+  const handlePageScaleInputChange = (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const value = event.target.value.replace(/[^\d.]/g, "");
     setPageScaleInput(value);
 
@@ -580,21 +715,29 @@ function SettingsDialog({
     setPageScaleInput(String(Math.round(normalizedScale * 100)));
   };
 
-  const handlePageScaleInputKeyDown = (event) => {
+  const handlePageScaleInputKeyDown = (
+    event: KeyboardEvent<HTMLInputElement>
+  ) => {
     if (event.key === "Enter") {
       event.preventDefault();
       commitPageScaleInput();
     }
   };
 
-  const handleSourceSubmit = (event) => {
+  const handleSourceSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     onAddQuoteFilter(sourceInput, sourceCategory);
     setSourceInput("");
   };
 
+  const handleDialogInteractOutside = (event: Event) => {
+    if (isAddressCascaderPopupTarget(event.target)) {
+      event.preventDefault();
+    }
+  };
+
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+    <Dialog.Root modal={false} open={open} onOpenChange={onOpenChange}>
       <AnimatePresence>
         {open && (
           <Dialog.Portal forceMount>
@@ -607,7 +750,11 @@ function SettingsDialog({
                 transition={{ duration: 0.18 }}
               />
             </Dialog.Overlay>
-            <Dialog.Content asChild forceMount>
+            <Dialog.Content
+              asChild
+              forceMount
+              onInteractOutside={handleDialogInteractOutside}
+            >
               <motion.section
                 className="settings-panel"
                 initial={
@@ -817,17 +964,25 @@ function SettingsDialog({
                       </button>
                     </div>
 
-                    <form className="settings-inline-form" onSubmit={handleLocationSearch}>
-                      <input
-                        className="settings-text-input"
-                        value={locationQuery}
-                        onChange={(event) => setLocationQuery(event.target.value)}
-                        placeholder="搜索城市、区县或地名"
-                      />
-                      <MotionButton ariaLabel="搜索地点" disabled={isLocationSearching}>
-                        <Search aria-hidden="true" />
-                      </MotionButton>
-                    </form>
+                    <Cascader<AddressOption, "value">
+                      className="address-cascader"
+                      disabled={isLocationResolving}
+                      options={ADDRESS_OPTIONS}
+                      onChange={handleAddressChange}
+                      placeholder={
+                        isLocationResolving ? "正在解析天气位置" : "选择省 / 市 / 区县"
+                      }
+                      showSearch
+                      changeOnSelect={false}
+                      allowClear
+                      placement="bottomLeft"
+                      aria-label="手动选择天气位置"
+                      popupClassName="address-cascader-popup"
+                      displayRender={(labels) =>
+                        labels.filter((label) => !GENERIC_ADDRESS_LABELS.has(label)).join(" / ")
+                      }
+                      status={locationSearchError ? "error" : undefined}
+                    />
 
                     <div className="location-current">
                       <span>当前天气位置</span>
@@ -844,31 +999,13 @@ function SettingsDialog({
                     {locationSearchError && (
                       <div className="settings-error">{locationSearchError}</div>
                     )}
-
-                    {locationResults.length > 0 && (
-                      <div className="location-results" aria-label="地点搜索结果">
-                        {locationResults.map((item) => (
-                          <button
-                            className="location-result"
-                            type="button"
-                            key={`${item.latitude}-${item.longitude}-${item.label}`}
-                            onClick={() => onManualLocationChange(item)}
-                          >
-                            <span>{item.label}</span>
-                            <small>
-                              {item.latitude.toFixed(2)}, {item.longitude.toFixed(2)}
-                            </small>
-                          </button>
-                        ))}
-                      </div>
-                    )}
                   </section>
 
                   <div className="settings-row">
                     <span className="settings-copy">
                       <span className="settings-label">
                         <Cloud aria-hidden="true" />
-                        天气状态
+                        天气数据
                       </span>
                       <span className="settings-description">
                         {resolveWeatherStatusText(weatherStatus)}
@@ -891,7 +1028,14 @@ function SettingsDialog({
   );
 }
 
-function IconButton({ children, className, label, onClick, spin, title }) {
+function IconButton({
+  children,
+  className,
+  label,
+  onClick,
+  spin,
+  title
+}: IconButtonProps) {
   const shouldReduceMotion = useReducedMotion();
 
   return (
@@ -909,7 +1053,12 @@ function IconButton({ children, className, label, onClick, spin, title }) {
   );
 }
 
-function MotionButton({ ariaLabel, children, disabled, onClick }) {
+function MotionButton({
+  ariaLabel,
+  children,
+  disabled,
+  onClick
+}: MotionButtonProps) {
   const shouldReduceMotion = useReducedMotion();
 
   return (
@@ -927,7 +1076,7 @@ function MotionButton({ ariaLabel, children, disabled, onClick }) {
   );
 }
 
-function DigitGroup({ value, firstMax }) {
+function DigitGroup({ value, firstMax }: DigitGroupProps) {
   return (
     <div className="digit-group" aria-hidden="true">
       <RollingDigit value={Number(value[0])} max={firstMax} />
@@ -936,9 +1085,9 @@ function DigitGroup({ value, firstMax }) {
   );
 }
 
-function RollingDigit({ value, max }) {
+function RollingDigit({ value, max }: RollingDigitProps) {
   const previousRef = useRef(value);
-  const resetTimerRef = useRef(null);
+  const resetTimerRef = useRef<number | undefined>(undefined);
   const [position, setPosition] = useState(value);
   const [animate, setAnimate] = useState(false);
   const shouldReduceMotion = useReducedMotion();
@@ -968,7 +1117,7 @@ function RollingDigit({ value, max }) {
     return () => window.clearTimeout(resetTimerRef.current);
   }, [max, shouldReduceMotion, value]);
 
-  const digits = [];
+  const digits: number[] = [];
   for (let i = 0; i <= max; i += 1) {
     digits.push(i);
   }
@@ -995,7 +1144,7 @@ function RollingDigit({ value, max }) {
   );
 }
 
-function WeatherIcon({ code, status }) {
+function WeatherIcon({ code, status }: WeatherIconProps) {
   const icon = resolveWeatherIcon(code, status);
 
   if (icon === "rain") {
@@ -1010,7 +1159,10 @@ function WeatherIcon({ code, status }) {
   return <Sun className="weather-icon" aria-hidden="true" />;
 }
 
-async function fetchJsonWithTimeout(url, timeoutMs) {
+async function fetchJsonWithTimeout<T = unknown>(
+  url: string,
+  timeoutMs: number
+): Promise<T> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
 
@@ -1021,20 +1173,26 @@ async function fetchJsonWithTimeout(url, timeoutMs) {
       throw new Error(`HTTP ${response.status}`);
     }
 
-    return await response.json();
+    return (await response.json()) as T;
   } finally {
     window.clearTimeout(timeoutId);
   }
 }
 
-async function fetchFilteredQuote(settings, previousQuote) {
+async function fetchFilteredQuote(
+  settings: AppSettings,
+  previousQuote?: Quote
+): Promise<Quote> {
   const filter = randomQuoteFilter(settings);
   const apiUrl = buildQuoteApiUrl(filter?.category);
   const sourceFilter = filter?.source ? [filter.source] : [];
 
   for (let i = 0; i < MAX_QUOTE_FETCH_ATTEMPTS; i += 1) {
     try {
-      const data = await fetchJsonWithTimeout(apiUrl, QUOTE_API_TIMEOUT_MS);
+      const data = await fetchJsonWithTimeout<Record<string, unknown>>(
+        apiUrl,
+        QUOTE_API_TIMEOUT_MS
+      );
       const text = String(data?.hitokoto || "").trim();
       const from = String(data?.from || "").trim();
       const fromWho = String(data?.from_who || data?.from || "").trim();
@@ -1056,7 +1214,7 @@ async function fetchFilteredQuote(settings, previousQuote) {
   throw new Error("no matching quote");
 }
 
-function buildQuoteApiUrl(category) {
+function buildQuoteApiUrl(category?: string): string {
   const normalizedCategory = normalizeQuoteCategory(category);
   if (!normalizedCategory) {
     return QUOTE_API_BASE;
@@ -1065,11 +1223,116 @@ function buildQuoteApiUrl(category) {
   return `${QUOTE_API_BASE}?${params}`;
 }
 
-function delay(ms) {
+function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-async function resolveWeatherLocation(settings) {
+function buildAddressOptions(parentCode = ADDRESS_ROOT_CODE): AddressOption[] {
+  return Object.entries(CHINA_AREA_DATA[parentCode] || {}).map(([value, label]) => {
+    const children = buildAddressOptions(value);
+    return {
+      value,
+      label,
+      ...(children.length ? { children } : {})
+    };
+  });
+}
+
+function formatAddressSelection(options: AddressOption[]): AddressSelection | null {
+  const parts = options
+    .map((option) => cleanLocationPart(option.label))
+    .filter((part) => part && !GENERIC_ADDRESS_LABELS.has(part));
+
+  if (!parts.length) {
+    return null;
+  }
+
+  return {
+    parts,
+    label: parts.join(""),
+    queries: buildAddressQueries(parts)
+  };
+}
+
+function buildAddressQueries(parts: string[]): string[] {
+  return Array.from(
+    new Set([
+      parts.join(""),
+      parts.slice(-2).join(""),
+      parts[parts.length - 1] || ""
+    ].filter((query) => query.length >= 2))
+  );
+}
+
+async function resolveAddressLocation(
+  selection: AddressSelection
+): Promise<WeatherLocation | null> {
+  let bestMatch: LocationSearchResult | null = null;
+  let bestScore = -1;
+  let lastError: unknown = null;
+
+  for (const query of selection.queries) {
+    try {
+      const results = await searchLocations(query);
+      for (const result of results) {
+        const score = scoreAddressResult(result, selection.parts);
+        if (score > bestScore) {
+          bestMatch = result;
+          bestScore = score;
+        }
+      }
+
+      if (bestMatch && bestScore >= Math.max(4, selection.parts.length * 2)) {
+        break;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (!bestMatch && lastError) {
+    throw lastError;
+  }
+
+  return bestMatch
+    ? {
+        label: selection.label,
+        latitude: bestMatch.latitude,
+        longitude: bestMatch.longitude,
+        source: "manual"
+      }
+    : null;
+}
+
+function scoreAddressResult(result: LocationSearchResult, parts: string[]): number {
+  const label = normalizeAddressSearchText(result.label);
+  const normalizedParts = parts.map(normalizeAddressSearchText).filter(Boolean);
+  let score = 0;
+
+  normalizedParts.forEach((part, index) => {
+    if (!label.includes(part)) {
+      return;
+    }
+    score += index === normalizedParts.length - 1 ? 4 : 2;
+  });
+
+  const district = normalizedParts[normalizedParts.length - 1];
+  if (district && label.startsWith(district)) {
+    score += 2;
+  }
+
+  return score;
+}
+
+function normalizeAddressSearchText(value: string): string {
+  return cleanLocationPart(value).replace(/[·/]/g, "");
+}
+
+function isAddressCascaderPopupTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest(".address-cascader-popup"));
+}
+
+async function resolveWeatherLocation(settings: AppSettings): Promise<WeatherLocation> {
   if (settings.locationMode === "manual") {
     return normalizeLocation(settings.manualLocation) || FALLBACK_LOCATION;
   }
@@ -1105,19 +1368,22 @@ async function resolveWeatherLocation(settings) {
   }
 }
 
-function getCurrentPosition(options) {
+function getCurrentPosition(options: PositionOptions): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
     navigator.geolocation.getCurrentPosition(resolve, reject, options);
   });
 }
 
-async function resolveLocationLabel(latitude, longitude) {
+async function resolveLocationLabel(
+  latitude: number,
+  longitude: number
+): Promise<string> {
   const params = new URLSearchParams({
     latitude: String(latitude),
     longitude: String(longitude),
     localityLanguage: "zh"
   });
-  const data = await fetchJsonWithTimeout(
+  const data = await fetchJsonWithTimeout<Record<string, unknown>>(
     `${REVERSE_GEOCODE_API}?${params}`,
     3000
   );
@@ -1125,26 +1391,35 @@ async function resolveLocationLabel(latitude, longitude) {
   return formatReverseLocationLabel(data);
 }
 
-async function searchLocations(query) {
+async function searchLocations(query: string): Promise<LocationSearchResult[]> {
   const params = new URLSearchParams({
     q: query
   });
-  let data;
+  let data: { results?: unknown[] };
   try {
-    data = await fetchJsonWithTimeout(`${LOCATION_SEARCH_API}?${params}`, 4000);
+    data = await fetchJsonWithTimeout<{ results?: unknown[] }>(
+      `${LOCATION_SEARCH_API}?${params}`,
+      4000
+    );
   } catch (_error) {
-    data = await fetchJsonWithTimeout(buildDirectLocationSearchUrl(query), 4000);
+    data = await fetchJsonWithTimeout<{ results?: unknown[] }>(
+      buildDirectLocationSearchUrl(query),
+      4000
+    );
   }
   const results = Array.isArray(data?.results) ? data.results : [];
 
   return results
-    .map((item) => ({
-      label: formatGeocodingLocationLabel(item),
-      latitude: Number(item.latitude),
-      longitude: Number(item.longitude),
-      source: "manual",
-      precision: resolveGeocodingPrecision(item)
-    }))
+    .map((item) => {
+      const record = asRecord(item);
+      return {
+        label: formatGeocodingLocationLabel(record),
+        latitude: Number(record.latitude),
+        longitude: Number(record.longitude),
+        source: "manual",
+        precision: resolveGeocodingPrecision(record)
+      };
+    })
     .filter(
       (item) =>
         item.label &&
@@ -1153,7 +1428,7 @@ async function searchLocations(query) {
     );
 }
 
-function buildDirectLocationSearchUrl(query) {
+function buildDirectLocationSearchUrl(query: string): string {
   const params = new URLSearchParams({
     name: query,
     count: "8",
@@ -1164,12 +1439,16 @@ function buildDirectLocationSearchUrl(query) {
   return `${GEOCODING_API_BASE}?${params}`;
 }
 
-function formatReverseLocationLabel(data) {
-  const city = cleanLocationPart(data?.city);
-  const locality = cleanLocationPart(data?.locality);
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function formatReverseLocationLabel(data: Record<string, unknown>): string {
+  const city = cleanLocationPart(data.city);
+  const locality = cleanLocationPart(data.locality);
   const district = resolveReverseDistrict(data);
-  const principalSubdivision = cleanLocationPart(data?.principalSubdivision);
-  const countryName = cleanLocationPart(data?.countryName);
+  const principalSubdivision = cleanLocationPart(data.principalSubdivision);
+  const countryName = cleanLocationPart(data.countryName);
 
   if (city && district && city !== district) {
     return `${city}${district}`;
@@ -1192,10 +1471,10 @@ function formatReverseLocationLabel(data) {
   return district || principalSubdivision || countryName || "";
 }
 
-function formatGeocodingLocationLabel(item) {
-  const district = cleanLocationPart(item?.admin3 || item?.admin2 || item?.name);
-  const city = cleanLocationPart(item?.admin2 || item?.admin1);
-  const province = cleanLocationPart(item?.admin1);
+function formatGeocodingLocationLabel(item: Record<string, unknown>): string {
+  const district = cleanLocationPart(item.admin3 || item.admin2 || item.name);
+  const city = cleanLocationPart(item.admin2 || item.admin1);
+  const province = cleanLocationPart(item.admin1);
   const parts = [
     district,
     city !== district ? city : "",
@@ -1204,33 +1483,34 @@ function formatGeocodingLocationLabel(item) {
   return Array.from(new Set(parts)).join(" · ");
 }
 
-function resolveReverseDistrict(data) {
-  const administrative = Array.isArray(data?.localityInfo?.administrative)
-    ? data.localityInfo.administrative
+function resolveReverseDistrict(data: Record<string, unknown>): string {
+  const localityInfo = asRecord(data.localityInfo);
+  const administrative = Array.isArray(localityInfo.administrative)
+    ? localityInfo.administrative.map(asRecord)
     : [];
   const districtLike = administrative.find((item) =>
-    /区|县|旗|市辖区|district|county/i.test(String(item?.name || ""))
+    /区|县|旗|市辖区|district|county/i.test(String(item.name || ""))
   );
 
   return (
     cleanLocationPart(districtLike?.name) ||
-    cleanLocationPart(data?.locality) ||
+    cleanLocationPart(data.locality) ||
     cleanLocationPart(administrative[3]?.name)
   );
 }
 
-function resolveGeocodingPrecision(item) {
-  const candidate = `${item?.name || ""}${item?.admin2 || ""}${item?.admin3 || ""}`;
+function resolveGeocodingPrecision(item: Record<string, unknown>): GeocodingPrecision {
+  const candidate = `${item.name || ""}${item.admin2 || ""}${item.admin3 || ""}`;
   return /区|县|旗/.test(candidate) ? "district" : "city";
 }
 
-function cleanLocationPart(value) {
+function cleanLocationPart(value: unknown): string {
   return String(value || "")
     .replace(/\s+/g, "")
     .trim();
 }
 
-function buildWeatherApiUrl({ latitude, longitude }) {
+function buildWeatherApiUrl({ latitude, longitude }: WeatherLocation): string {
   const params = new URLSearchParams({
     latitude: String(latitude),
     longitude: String(longitude),
@@ -1240,7 +1520,7 @@ function buildWeatherApiUrl({ latitude, longitude }) {
   return `${WEATHER_API_BASE}?${params}`;
 }
 
-function randomLocalQuote(settings, previousQuote) {
+function randomLocalQuote(settings: AppSettings, previousQuote?: Quote): Quote {
   const filter = randomQuoteFilter(settings);
   const sourceFilter = filter?.source ? [filter.source] : [];
   const candidates = sourceFilter.length
@@ -1255,7 +1535,7 @@ function randomLocalQuote(settings, previousQuote) {
   return { text: quote.text, source: quote.source };
 }
 
-function randomQuoteFilter(settings) {
+function randomQuoteFilter(settings: AppSettings): QuoteFilter | null {
   const filters = normalizeQuoteFilters(settings);
   if (!filters.length) {
     return null;
@@ -1263,56 +1543,59 @@ function randomQuoteFilter(settings) {
   return filters[Math.floor(Math.random() * filters.length)];
 }
 
-function isSameQuoteText(text, previousQuote) {
+function isSameQuoteText(text: string, previousQuote?: Quote): boolean {
   return normalizeQuoteText(text) === normalizeQuoteText(previousQuote?.text);
 }
 
-function normalizeQuoteText(text) {
+function normalizeQuoteText(text: unknown): string {
   return String(text || "")
     .replace(/\s+/g, "")
     .trim();
 }
 
-function normalizeQuoteSources(sources) {
+function normalizeQuoteSources(sources: unknown): string[] {
   if (!Array.isArray(sources)) {
     return [];
   }
   return Array.from(new Set(sources.map(cleanQuoteSource).filter(Boolean)));
 }
 
-function cleanQuoteSource(value) {
+function cleanQuoteSource(value: unknown): string {
   return String(value || "")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 36);
 }
 
-function isSameQuoteSource(a, b) {
+function isSameQuoteSource(a: unknown, b: unknown): boolean {
   return normalizeQuoteSourceForMatch(a) === normalizeQuoteSourceForMatch(b);
 }
 
-function normalizeQuoteFilters(settingsOrFilters) {
+function normalizeQuoteFilters(settingsOrFilters: unknown): QuoteFilter[] {
   const rawFilters = Array.isArray(settingsOrFilters)
     ? settingsOrFilters
-    : settingsOrFilters?.quoteFilters;
+    : asRecord(settingsOrFilters).quoteFilters;
 
   if (Array.isArray(rawFilters)) {
     const normalized = rawFilters
-      .map((item) => ({
-        source: cleanQuoteSource(item?.source),
-        category: normalizeQuoteCategory(item?.category) || DEFAULT_QUOTE_CATEGORY
-      }))
-      .filter((item) => item.source);
+      .map((item) => {
+        const record = asRecord(item);
+        return {
+        source: cleanQuoteSource(record.source),
+        category: normalizeQuoteCategory(record.category) || DEFAULT_QUOTE_CATEGORY
+      };
+      })
+      .filter((item): item is QuoteFilter => Boolean(item.source));
 
     return dedupeQuoteFilters(normalized);
   }
 
-  return migrateQuoteFilters(settingsOrFilters);
+  return migrateQuoteFilters(asRecord(settingsOrFilters));
 }
 
-function migrateQuoteFilters(settings) {
-  const sources = normalizeQuoteSources(settings?.quoteSources);
-  const categories = normalizeQuoteCategories(settings?.quoteCategories);
+function migrateQuoteFilters(settings: Record<string, unknown>): QuoteFilter[] {
+  const sources = normalizeQuoteSources(settings.quoteSources);
+  const categories = normalizeQuoteCategories(settings.quoteCategories);
   const fallbackCategory = categories[0] || DEFAULT_QUOTE_CATEGORY;
 
   return sources.map((source, index) => ({
@@ -1321,9 +1604,9 @@ function migrateQuoteFilters(settings) {
   }));
 }
 
-function dedupeQuoteFilters(filters) {
-  const seen = new Set();
-  const result = [];
+function dedupeQuoteFilters(filters: QuoteFilter[]): QuoteFilter[] {
+  const seen = new Set<string>();
+  const result: QuoteFilter[] = [];
 
   filters.forEach((filter) => {
     const key = normalizeQuoteSourceForMatch(filter.source);
@@ -1337,7 +1620,7 @@ function dedupeQuoteFilters(filters) {
   return result;
 }
 
-function quoteMatchesSources(from, filters) {
+function quoteMatchesSources(from: unknown, filters: unknown): boolean {
   const normalizedFilters = normalizeQuoteSources(filters);
   if (!normalizedFilters.length) {
     return true;
@@ -1354,14 +1637,14 @@ function quoteMatchesSources(from, filters) {
   });
 }
 
-function normalizeQuoteSourceForMatch(value) {
+function normalizeQuoteSourceForMatch(value: unknown): string {
   return String(value || "")
     .replace(/[：:]/g, "")
     .replace(/\s+/g, "")
     .toLocaleLowerCase();
 }
 
-function normalizeQuoteCategories(categories) {
+function normalizeQuoteCategories(categories: unknown): string[] {
   if (!Array.isArray(categories)) {
     return [];
   }
@@ -1374,22 +1657,22 @@ function normalizeQuoteCategories(categories) {
   );
 }
 
-function normalizeQuoteCategory(category) {
+function normalizeQuoteCategory(category: unknown): string {
   const code = String(category || "").trim();
   return HITOKOTO_CATEGORIES.some((item) => item.code === code) ? code : "";
 }
 
-function formatQuoteSource(quote) {
+function formatQuoteSource(quote: Quote): string {
   return `—— ${quote?.source || "每日一言"}`;
 }
 
-function readStoredSettings() {
+function readStoredSettings(): AppSettings {
   try {
     const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!raw) {
       return DEFAULT_SETTINGS;
     }
-    const parsed = JSON.parse(raw);
+    const parsed = asRecord(JSON.parse(raw));
     const migratedMode =
       parsed.locationMode === "manual" || parsed.locationMode === "browser"
         ? parsed.locationMode
@@ -1415,7 +1698,7 @@ function readStoredSettings() {
   }
 }
 
-function writeStoredSettings(settings) {
+function writeStoredSettings(settings: AppSettings): void {
   try {
     window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
   } catch (_error) {
@@ -1423,7 +1706,7 @@ function writeStoredSettings(settings) {
   }
 }
 
-function normalizePageScale(value) {
+function normalizePageScale(value: unknown): number {
   const scale = Number(value);
   if (!Number.isFinite(scale)) {
     return DEFAULT_SETTINGS.pageScale;
@@ -1432,7 +1715,7 @@ function normalizePageScale(value) {
   return Math.round(bounded / PAGE_SCALE_STEP) * PAGE_SCALE_STEP;
 }
 
-function normalizeQuoteRefreshMinutes(value) {
+function normalizeQuoteRefreshMinutes(value: unknown): number {
   const minutes = Number(value);
   if (!Number.isFinite(minutes)) {
     return DEFAULT_SETTINGS.quoteRefreshMinutes;
@@ -1443,13 +1726,14 @@ function normalizeQuoteRefreshMinutes(value) {
   );
 }
 
-function normalizeLocation(location) {
+function normalizeLocation(location: unknown): WeatherLocation | null {
   if (!location) {
     return null;
   }
-  const latitude = Number(location.latitude);
-  const longitude = Number(location.longitude);
-  const label = String(location.label || "").trim();
+  const record = asRecord(location);
+  const latitude = Number(record.latitude);
+  const longitude = Number(record.longitude);
+  const label = String(record.label || "").trim();
 
   if (!label || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
     return null;
@@ -1459,15 +1743,15 @@ function normalizeLocation(location) {
     label,
     latitude,
     longitude,
-    source: location.source || "manual"
+    source: String(record.source || "manual")
   };
 }
 
-function isFiniteCoordinate(location) {
+function isFiniteCoordinate(location: WeatherLocation): boolean {
   return Number.isFinite(location.latitude) && Number.isFinite(location.longitude);
 }
 
-function resolveWeatherStatusText(status) {
+function resolveWeatherStatusText(status: WeatherStatus): string {
   if (status === "ready") {
     return "已更新";
   }
@@ -1477,7 +1761,7 @@ function resolveWeatherStatusText(status) {
   return "暂不可用";
 }
 
-function getGreeting(hour) {
+function getGreeting(hour: number): string {
   if (hour >= 5 && hour < 7) {
     return "晨光初起，把注意力交给最重要的事";
   }
@@ -1496,11 +1780,11 @@ function getGreeting(hour) {
   return "深夜安静，愿每一分钟都有方向";
 }
 
-function formatTimeLabel({ hours, minutes, seconds }) {
+function formatTimeLabel({ hours, minutes, seconds }: TimeParts): string {
   return `${hours}:${minutes}:${seconds}`;
 }
 
-function resolveWeatherIcon(code, status) {
+function resolveWeatherIcon(code: number, status: WeatherStatus): WeatherIconName {
   if (status === "error") {
     return "cloudy";
   }
@@ -1516,7 +1800,7 @@ function resolveWeatherIcon(code, status) {
   return "clear";
 }
 
-function escapeCssUrl(url) {
+function escapeCssUrl(url: string): string {
   return String(url).replace(/["\\]/g, "\\$&");
 }
 
