@@ -203,11 +203,13 @@ interface ClockDurationSegmentProps {
 }
 
 interface DigitGroupProps {
+  duration?: number;
   value: string;
   firstMax: number;
 }
 
 interface RollingDigitProps {
+  duration?: number;
   value: number;
   max: number;
 }
@@ -1880,7 +1882,7 @@ function ClockDurationSegment({
       >
         <ChevronUp aria-hidden="true" />
       </button>
-      <DigitGroup value={displayValue} firstMax={firstMax} />
+      <DigitGroup duration={0.2} value={displayValue} firstMax={firstMax} />
       <button
         className="clock-step-btn"
         type="button"
@@ -2156,16 +2158,16 @@ function CronVisualEditor({ draft, onChange, rule }: CronVisualEditorProps) {
   );
 }
 
-function DigitGroup({ value, firstMax }: DigitGroupProps) {
+function DigitGroup({ duration, value, firstMax }: DigitGroupProps) {
   return (
     <div className="digit-group" aria-hidden="true">
-      <RollingDigit value={Number(value[0])} max={firstMax} />
-      <RollingDigit value={Number(value[1])} max={9} />
+      <RollingDigit duration={duration} value={Number(value[0])} max={firstMax} />
+      <RollingDigit duration={duration} value={Number(value[1])} max={9} />
     </div>
   );
 }
 
-function RollingDigit({ value, max }: RollingDigitProps) {
+function RollingDigit({ duration = 0.6, value, max }: RollingDigitProps) {
   const previousRef = useRef(value);
   const resetTimerRef = useRef<number | undefined>(undefined);
   const [position, setPosition] = useState(value);
@@ -2187,7 +2189,7 @@ function RollingDigit({ value, max }: RollingDigitProps) {
       resetTimerRef.current = window.setTimeout(() => {
         setAnimate(false);
         setPosition(0);
-      }, shouldReduceMotion ? 0 : 620);
+      }, shouldReduceMotion ? 0 : duration * 1000 + 20);
     } else {
       setPosition(value);
     }
@@ -2195,7 +2197,7 @@ function RollingDigit({ value, max }: RollingDigitProps) {
     previousRef.current = value;
 
     return () => window.clearTimeout(resetTimerRef.current);
-  }, [max, shouldReduceMotion, value]);
+  }, [duration, max, shouldReduceMotion, value]);
 
   const digits: number[] = [];
   for (let i = 0; i <= max; i += 1) {
@@ -2210,7 +2212,7 @@ function RollingDigit({ value, max }: RollingDigitProps) {
         animate={{ y: `calc(-1 * var(--digit-height) * ${position})` }}
         transition={
           animate && !shouldReduceMotion
-            ? { duration: 0.6, ease: [0.65, 0, 0.35, 1] }
+            ? { duration, ease: [0.65, 0, 0.35, 1] }
             : { duration: 0 }
         }
       >
