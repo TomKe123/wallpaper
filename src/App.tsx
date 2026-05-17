@@ -259,6 +259,10 @@ const GEOLOCATION_OPTIONS: PositionOptions = {
   maximumAge: 15 * 60 * 1000
 };
 const SETTINGS_STORAGE_KEY = "wallpaper-settings";
+const SETTINGS_IDB_NAME = "wallpaper-settings-db";
+const SETTINGS_IDB_STORE = "settings";
+const SETTINGS_IDB_VERSION = 1;
+const SETTINGS_FILE_URL = "./wallpaper-settings.json";
 const MIN_PAGE_SCALE = 0.5;
 const MAX_PAGE_SCALE = 1.3;
 const PAGE_SCALE_STEP = 0.01;
@@ -519,6 +523,18 @@ function App() {
   useEffect(() => {
     writeStoredSettings(settings);
   }, [settings]);
+
+  useEffect(() => {
+    let cancelled = false;
+    readStoredSettingsAsync().then((storedSettings) => {
+      if (!cancelled && storedSettings) {
+        setSettings(storedSettings);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     window.livelyPropertyListener = (nameOrEvent, value) => {
@@ -1229,7 +1245,7 @@ function SettingsDialog({
     );
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `wallpaper-settings-${formatBackupFileTimestamp()}.json`;
+    anchor.download = "wallpaper-settings.json";
     anchor.click();
     URL.revokeObjectURL(url);
     setSettingsBackupMessage("配置文件已生成。");
@@ -3298,14 +3314,12 @@ function parseSettingsBackup(value: unknown): AppSettings | null {
     if (!source) {
       return null;
     }
-    return normalizeSettings(JSON.parse(source));
+    const parsed = JSON.parse(source);
+    const record = asRecord(parsed);
+    return normalizeSettings(record.settings ?? record);
   } catch (_error) {
     return null;
   }
-}
-
-function formatBackupFileTimestamp(): string {
-  return new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
 }
 
 function readStoredSettings(): AppSettings {
@@ -3320,12 +3334,104 @@ function readStoredSettings(): AppSettings {
   }
 }
 
+async function readStoredSettingsAsync(): Promise<AppSettings | null> {
+  if (hasLocalStoredSettings()) {
+    return null;
+  }
+  return (
+    (await readSettingsFromIndexedDb()) ||
+    (await readSettingsFromFile()) ||
+    null
+  );
+}
+
 function writeStoredSettings(settings: AppSettings): void {
   try {
     window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
   } catch (_error) {
     // Local storage can be unavailable in hardened browser contexts.
   }
+  void writeSettingsToIndexedDb(settings);
+}
+
+function hasLocalStoredSettings(): boolean {
+  try {
+    return Boolean(window.localStorage.getItem(SETTINGS_STORAGE_KEY));
+  } catch (_error) {
+    return false;
+  }
+}
+
+async function readSettingsFromFile(): Promise<AppSettings | null> {
+  try {
+    const response = await fetch(`${SETTINGS_FILE_URL}?t=${Date.now()}`, {
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return null;
+    }
+    return parseSettingsBackup(await response.text());
+  } catch (_error) {
+    return null;
+  }
+}
+
+async function readSettingsFromIndexedDb(): Promise<AppSettings | null> {
+  try {
+    const database = await openSettingsDatabase();
+    return await new Promise((resolve) => {
+      const transaction = database.transaction(SETTINGS_IDB_STORE, "readonly");
+      const store = transaction.objectStore(SETTINGS_IDB_STORE);
+      const request = store.get(SETTINGS_STORAGE_KEY);
+      request.onsuccess = () => {
+        const record = asRecord(request.result);
+        resolve(record.value ? normalizeSettings(record.value) : null);
+      };
+      request.onerror = () => resolve(null);
+    });
+  } catch (_error) {
+    return null;
+  }
+}
+
+async function writeSettingsToIndexedDb(settings: AppSettings): Promise<void> {
+  try {
+    const database = await openSettingsDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(SETTINGS_IDB_STORE, "readwrite");
+      const store = transaction.objectStore(SETTINGS_IDB_STORE);
+      store.put({
+        id: SETTINGS_STORAGE_KEY,
+        savedAt: Date.now(),
+        value: normalizeSettings(settings)
+      });
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  } catch (_error) {
+    // IndexedDB can be blocked by some hosts; localStorage remains the fallback.
+  }
+}
+
+function openSettingsDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (!("indexedDB" in window)) {
+      reject(new Error("IndexedDB unavailable"));
+      return;
+    }
+    const request = window.indexedDB.open(
+      SETTINGS_IDB_NAME,
+      SETTINGS_IDB_VERSION
+    );
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(SETTINGS_IDB_STORE)) {
+        database.createObjectStore(SETTINGS_IDB_STORE, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
 }
 
 function normalizePageScale(value: unknown): number {
