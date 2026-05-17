@@ -4,6 +4,11 @@
   --digit-width: 220px;
   --digit-font-size: 340px;
   --digit-radius: 14px;
+  --scrollbar-size: 10px;
+  --scrollbar-radius: 999px;
+  --scrollbar-track: rgba(5, 5, 5, 0.04);
+  --scrollbar-thumb: rgba(5, 5, 5, 0.18);
+  --scrollbar-thumb-hover: #1677ff;
   --panel-bg: rgba(255, 255, 255, 0.88);
   --panel-border: rgba(255, 255, 255, 0.34);
   --ink: #171717;
@@ -32,6 +37,53 @@ body {
   background: #111;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+.settings-panel,
+.address-cascader-popup .ant-cascader-menu,
+.quote-category-select-popup .rc-virtual-list-holder {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+
+.settings-panel::-webkit-scrollbar,
+.address-cascader-popup .ant-cascader-menu::-webkit-scrollbar,
+.quote-category-select-popup .rc-virtual-list-holder::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+.settings-panel::-webkit-scrollbar-track,
+.address-cascader-popup .ant-cascader-menu::-webkit-scrollbar-track,
+.quote-category-select-popup .rc-virtual-list-holder::-webkit-scrollbar-track {
+  border-radius: var(--scrollbar-radius);
+  background: var(--scrollbar-track);
+}
+
+.settings-panel::-webkit-scrollbar-thumb,
+.address-cascader-popup .ant-cascader-menu::-webkit-scrollbar-thumb,
+.quote-category-select-popup .rc-virtual-list-holder::-webkit-scrollbar-thumb {
+  min-height: 40px;
+  border: 2px solid transparent;
+  border-radius: var(--scrollbar-radius);
+  background:
+    linear-gradient(var(--scrollbar-thumb), var(--scrollbar-thumb)) padding-box,
+    transparent border-box;
+}
+
+.settings-panel::-webkit-scrollbar-thumb:hover,
+.address-cascader-popup .ant-cascader-menu::-webkit-scrollbar-thumb:hover,
+.quote-category-select-popup .rc-virtual-list-holder::-webkit-scrollbar-thumb:hover {
+  background:
+    linear-gradient(var(--scrollbar-thumb-hover), var(--scrollbar-thumb-hover))
+      padding-box,
+    transparent border-box;
+}
+
+.settings-panel::-webkit-scrollbar-corner,
+.address-cascader-popup .ant-cascader-menu::-webkit-scrollbar-corner,
+.quote-category-select-popup .rc-virtual-list-holder::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 button,
@@ -323,6 +375,8 @@ button {
   width: min(520px, 100%);
   max-height: min(720px, calc(100vh - 48px));
   overflow: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
   padding: 22px;
   border: 1px solid rgba(255, 255, 255, 0.38);
   border-radius: 18px;
@@ -512,8 +566,7 @@ button {
   gap: 8px;
 }
 
-.settings-text-input,
-.settings-select {
+.settings-text-input {
   min-width: 0;
   height: 38px;
   padding: 0 12px;
@@ -525,13 +578,62 @@ button {
 }
 
 .settings-select {
+  width: 100%;
+  min-width: 0;
   cursor: pointer;
 }
 
-.settings-text-input:focus,
-.settings-select:focus {
+.settings-select .ant-select-selector {
+  height: 38px !important;
+  min-height: 38px;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+  border-radius: 10px !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+  box-shadow: none !important;
+}
+
+.settings-select .ant-select-selection-item {
+  display: inline-flex;
+  align-items: center;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.settings-text-input:focus {
   border-color: rgba(0, 0, 0, 0.26);
   box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.1);
+}
+
+.settings-select.ant-select-focused .ant-select-selector {
+  border-color: rgba(0, 0, 0, 0.26) !important;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.1) !important;
+}
+
+.quote-category-select-popup {
+  z-index: 30;
+}
+
+.quote-category-select-popup .rc-virtual-list-holder {
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.quote-category-select-popup .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: rgba(22, 119, 255, 0.12);
+}
+
+.quote-category-select-popup .ant-select-item-option {
+  min-height: 32px;
+  height: auto;
+  align-items: flex-start;
+  white-space: normal;
+}
+
+.quote-category-select-popup .ant-select-item-option-content {
+  min-width: max-content;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .address-cascader {
@@ -553,13 +655,29 @@ button {
 
 .address-cascader-popup .ant-cascader-menu {
   max-height: min(320px, 52vh);
+  min-width: max-content;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .address-cascader-popup {
   z-index: 30;
+  width: max-content;
+  max-width: calc(100vw - 32px);
   pointer-events: auto;
+}
+
+.address-cascader-popup .ant-cascader-menu-item {
+  width: max-content;
+  max-width: none;
+  white-space: nowrap;
+}
+
+.address-cascader-popup .ant-cascader-menu-item-content {
+  min-width: max-content;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .scale-control {
@@ -655,16 +773,38 @@ button {
   white-space: nowrap;
 }
 
-.source-chip select {
-  height: 26px;
-  border: 0;
-  border-radius: 999px;
+.source-chip-select {
+  width: 86px;
+  flex: 0 0 auto;
+}
+
+.source-chip-select .ant-select-selector {
+  height: 26px !important;
+  min-height: 26px;
+  padding: 0 24px 0 10px !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: rgba(0, 0, 0, 0.07) !important;
+  box-shadow: none !important;
+}
+
+.source-chip-select .ant-select-selection-item {
+  display: inline-flex;
+  align-items: center;
   color: #202020;
-  background: rgba(0, 0, 0, 0.07);
   font-size: 12px;
   font-weight: 760;
-  outline: none;
-  cursor: pointer;
+  line-height: 24px !important;
+}
+
+.source-chip-select .ant-select-arrow {
+  inset-inline-end: 8px;
+  color: #5a5a5a;
+  font-size: 10px;
+}
+
+.source-chip-select.ant-select-focused .ant-select-selector {
+  box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.18) !important;
 }
 
 .source-chip button {

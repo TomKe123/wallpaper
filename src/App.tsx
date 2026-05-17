@@ -6,7 +6,7 @@ import type {
   ReactNode
 } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Cascader } from "antd";
+import { Cascader, Select } from "antd";
 import type { CascaderProps } from "antd";
 import areaData from "china-area-data/data.json";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
@@ -166,7 +166,7 @@ const DEFAULT_QUOTE_FILTERS: QuoteFilter[] = [
 const DEFAULT_SETTINGS: AppSettings = {
   locationMode: "browser",
   manualLocation: FALLBACK_LOCATION,
-  pageScale: 1,
+  pageScale: 0.75,
   quoteRefreshMinutes: 5,
   quoteFilters: DEFAULT_QUOTE_FILTERS
 };
@@ -188,6 +188,10 @@ const HITOKOTO_CATEGORIES: HitokotoCategory[] = [
   { code: "l", label: "抖机灵" }
 ];
 const CHINA_AREA_DATA = areaData as AreaDataMap;
+const HITOKOTO_CATEGORY_OPTIONS = HITOKOTO_CATEGORIES.map((category) => ({
+  label: category.label,
+  value: category.code
+}));
 const ADDRESS_ROOT_CODE = "86";
 const GENERIC_ADDRESS_LABELS = new Set(["市辖区", "县", "省直辖县级行政区划"]);
 const ADDRESS_OPTIONS = buildAddressOptions();
@@ -879,18 +883,14 @@ function SettingsDialog({
                         onChange={(event) => setSourceInput(event.target.value)}
                         placeholder="例如：原神、崩坏：星穹铁道"
                       />
-                      <select
-                        className="settings-select"
-                        value={sourceCategory}
-                        onChange={(event) => setSourceCategory(event.target.value)}
+                      <Select
                         aria-label="新来源分类"
-                      >
-                        {HITOKOTO_CATEGORIES.map((category) => (
-                          <option key={category.code} value={category.code}>
-                            {category.label}
-                          </option>
-                        ))}
-                      </select>
+                        className="settings-select"
+                        options={HITOKOTO_CATEGORY_OPTIONS}
+                        popupClassName="quote-category-select-popup"
+                        value={sourceCategory}
+                        onChange={setSourceCategory}
+                      />
                       <MotionButton ariaLabel="添加来源">
                         <Plus aria-hidden="true" />
                       </MotionButton>
@@ -904,22 +904,19 @@ function SettingsDialog({
                             key={filter.source}
                           >
                             <span>{filter.source}</span>
-                            <select
+                            <Select
+                              aria-label={`${filter.source} 分类`}
+                              className="source-chip-select"
+                              options={HITOKOTO_CATEGORY_OPTIONS}
+                              popupClassName="quote-category-select-popup"
                               value={filter.category}
-                              onChange={(event) =>
+                              onChange={(category) =>
                                 onQuoteFilterCategoryChange(
                                   filter.source,
-                                  event.target.value
+                                  category
                                 )
                               }
-                              aria-label={`${filter.source} 分类`}
-                            >
-                              {HITOKOTO_CATEGORIES.map((category) => (
-                                <option key={category.code} value={category.code}>
-                                  {category.label}
-                                </option>
-                              ))}
-                            </select>
+                            />
                             <button
                               type="button"
                               onClick={() => onRemoveQuoteFilter(filter.source)}
@@ -1336,7 +1333,12 @@ function normalizeAddressSearchText(value: string): string {
 }
 
 function isAddressCascaderPopupTarget(target: EventTarget | null): boolean {
-  return target instanceof Element && Boolean(target.closest(".address-cascader-popup"));
+  return (
+    target instanceof Element &&
+    Boolean(
+      target.closest(".address-cascader-popup, .quote-category-select-popup")
+    )
+  );
 }
 
 async function resolveWeatherLocation(settings: AppSettings): Promise<WeatherLocation> {
