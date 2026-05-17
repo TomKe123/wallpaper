@@ -11,6 +11,7 @@ import type { CascaderProps } from "antd";
 import areaData from "china-area-data/data.json";
 import { CronExpressionParser } from "cron-parser";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import type { LucideIcon } from "lucide-react";
 import {
   CalendarClock,
   Check,
@@ -181,6 +182,7 @@ interface MotionButtonProps {
 }
 
 interface SettingsTabOption {
+  icon: LucideIcon;
   label: string;
   value: SettingsTab;
 }
@@ -201,6 +203,7 @@ interface InlineCountdownConfigProps {
 }
 
 interface ClockDurationSegmentProps {
+  autoFocus?: boolean;
   label: string;
   firstMax: number;
   part: keyof CountdownDurationInput;
@@ -277,14 +280,21 @@ const PAGE_SCALE_STEP = 0.01;
 const MIN_QUOTE_REFRESH_MINUTES = 1;
 const MAX_QUOTE_REFRESH_MINUTES = 1440;
 const DEFAULT_COUNTDOWN_LABEL = "倒计时";
-const DEFAULT_COUNTDOWN_SECONDS = 10 * 60;
+const DEFAULT_COUNTDOWN_SECONDS = 5 * 60;
 const MIN_COUNTDOWN_SECONDS = 1;
 const MAX_COUNTDOWN_SECONDS = 24 * 60 * 60;
 const MAX_COUNTDOWN_HOURS = 24;
 const DEFAULT_COUNTDOWN_DURATION_INPUT: CountdownDurationInput = {
   hours: 0,
-  minutes: 10,
+  minutes: 5,
   seconds: 0
+};
+const DEFAULT_COUNTDOWN_STATE: CountdownState = {
+  active: false,
+  durationSeconds: DEFAULT_COUNTDOWN_SECONDS,
+  endsAt: 0,
+  label: DEFAULT_COUNTDOWN_LABEL,
+  startedAt: 0
 };
 const DEFAULT_CRON_VISUAL_DRAFT: CronVisualDraft = {
   dayOfMonth: 1,
@@ -309,11 +319,11 @@ const SCHEDULE_RULE_OPTIONS: Array<{
   { label: "高级 cron", value: "advanced" }
 ];
 const SETTINGS_TAB_OPTIONS: SettingsTabOption[] = [
-  { label: "显示", value: "display" },
-  { label: "倒计时", value: "countdown" },
-  { label: "一言", value: "quotes" },
-  { label: "定位", value: "location" },
-  { label: "备份", value: "backup" }
+  { icon: ZoomIn, label: "显示", value: "display" },
+  { icon: Timer, label: "倒计时", value: "countdown" },
+  { icon: RefreshCw, label: "一言", value: "quotes" },
+  { icon: MapPin, label: "定位", value: "location" },
+  { icon: Download, label: "备份", value: "backup" }
 ];
 const DEFAULT_QUOTE_CATEGORY = "c";
 const DEFAULT_QUOTE_FILTERS: QuoteFilter[] = [
@@ -322,13 +332,7 @@ const DEFAULT_QUOTE_FILTERS: QuoteFilter[] = [
   { source: "崩坏3", category: DEFAULT_QUOTE_CATEGORY }
 ];
 const DEFAULT_SETTINGS: AppSettings = {
-  countdown: {
-    active: false,
-    durationSeconds: DEFAULT_COUNTDOWN_SECONDS,
-    endsAt: 0,
-    label: DEFAULT_COUNTDOWN_LABEL,
-    startedAt: 0
-  },
+  countdown: createInactiveCountdown(),
   countdownSchedules: [],
   locationMode: "browser",
   manualLocation: FALLBACK_LOCATION,
@@ -579,12 +583,7 @@ function App() {
       const didCountdownFinish =
         previous.countdown.active && previous.countdown.endsAt <= nowMs;
       const nextCountdown = didCountdownFinish
-          ? {
-              ...previous.countdown,
-              active: false,
-              endsAt: 0,
-              startedAt: 0
-            }
+          ? createInactiveCountdown(previous.countdown.label)
           : previous.countdown;
 
       const dueSchedules = previous.countdownSchedules.filter(
@@ -783,12 +782,7 @@ function App() {
     setIsCountdownInlineConfigOpen(false);
     setSettings((previous) => ({
       ...previous,
-      countdown: {
-        ...previous.countdown,
-        active: false,
-        endsAt: 0,
-        startedAt: 0
-      }
+      countdown: createInactiveCountdown()
     }));
   }, []);
 
@@ -1347,21 +1341,65 @@ function SettingsDialog({
                   role="tablist"
                   aria-label="设置分类"
                 >
-                  {SETTINGS_TAB_OPTIONS.map((tab) => (
-                    <button
-                      className={activeSettingsTab === tab.value ? "active" : ""}
-                      key={tab.value}
-                      role="tab"
-                      type="button"
-                      aria-selected={activeSettingsTab === tab.value}
-                      onClick={() => setActiveSettingsTab(tab.value)}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
+                  {SETTINGS_TAB_OPTIONS.map((tab) => {
+                    const TabIcon = tab.icon;
+                    const isActive = activeSettingsTab === tab.value;
+
+                    return (
+                      <button
+                        className={isActive ? "active" : ""}
+                        key={tab.value}
+                        role="tab"
+                        type="button"
+                        aria-selected={isActive}
+                        onClick={() => setActiveSettingsTab(tab.value)}
+                      >
+                        {isActive && (
+                          <motion.span
+                            className="settings-tab-indicator"
+                            layoutId={
+                              shouldReduceMotion
+                                ? undefined
+                                : "settings-tab-indicator"
+                            }
+                            transition={
+                              shouldReduceMotion
+                                ? { duration: 0 }
+                                : { type: "spring", duration: 0.42, bounce: 0.18 }
+                            }
+                          />
+                        )}
+                        <span className="settings-tab-icon">
+                          <TabIcon aria-hidden="true" />
+                        </span>
+                        <span className="settings-tab-label">{tab.label}</span>
+                      </button>
+                    );
+                  })}
                 </div>
 
                 <div className="settings-list">
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.div
+                      className="settings-tab-panel"
+                      key={activeSettingsTab}
+                      initial={
+                        shouldReduceMotion
+                          ? false
+                          : { opacity: 0, y: 8, scale: 0.99 }
+                      }
+                      animate={
+                        shouldReduceMotion
+                          ? undefined
+                          : { opacity: 1, y: 0, scale: 1 }
+                      }
+                      exit={
+                        shouldReduceMotion
+                          ? undefined
+                          : { opacity: 0, y: -8, scale: 0.99 }
+                      }
+                      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                    >
                   {activeSettingsTab === "display" && (
                   <section className="settings-block">
                     <div className="settings-block-head">
@@ -1784,6 +1822,8 @@ function SettingsDialog({
                     </div>
                   </section>
                   )}
+                    </motion.div>
+                  </AnimatePresence>
                 </div>
 
                 <div className="settings-actions">
@@ -1882,6 +1922,7 @@ function InlineCountdownConfig({
     <form className="inline-clock-editor" onSubmit={handleSubmit}>
       <div className="inline-clock-inputs" aria-label="倒计时持续时间">
         <ClockDurationSegment
+          autoFocus
           firstMax={2}
           label="小时"
           part="hours"
@@ -1923,15 +1964,52 @@ function InlineCountdownConfig({
 }
 
 function ClockDurationSegment({
+  autoFocus,
   label,
   firstMax,
   part,
   value,
   onChange
 }: ClockDurationSegmentProps) {
+  const inputBufferRef = useRef("");
+  const digitsRef = useRef<HTMLDivElement>(null);
   const normalizedValue = normalizeDurationPart(value, part);
   const maxValue = part === "hours" ? MAX_COUNTDOWN_HOURS : 59;
   const displayValue = String(normalizedValue).padStart(2, "0");
+
+  useEffect(() => {
+    if (autoFocus) {
+      digitsRef.current?.focus();
+    }
+  }, [autoFocus]);
+
+  const handleDigitKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (/^\d$/.test(event.key)) {
+      event.preventDefault();
+      const nextBuffer = `${inputBufferRef.current}${event.key}`.slice(-2);
+      inputBufferRef.current = nextBuffer;
+      onChange(Number(nextBuffer));
+      return;
+    }
+
+    if (event.key === "Backspace" || event.key === "Delete") {
+      event.preventDefault();
+      inputBufferRef.current = "";
+      onChange(0);
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      onChange(normalizedValue + 1);
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      onChange(normalizedValue - 1);
+    }
+  };
 
   return (
     <div
@@ -1948,7 +2026,22 @@ function ClockDurationSegment({
       >
         <ChevronUp aria-hidden="true" />
       </button>
-      <DigitGroup duration={0.2} value={displayValue} firstMax={firstMax} />
+      <div
+        className="editable-clock-digits"
+        ref={digitsRef}
+        role="spinbutton"
+        tabIndex={0}
+        aria-label={`${label}，当前 ${displayValue}`}
+        aria-valuemax={maxValue}
+        aria-valuemin={0}
+        aria-valuenow={normalizedValue}
+        onBlur={() => {
+          inputBufferRef.current = "";
+        }}
+        onKeyDown={handleDigitKeyDown}
+      >
+        <DigitGroup duration={0.2} value={displayValue} firstMax={firstMax} />
+      </div>
       <button
         className="clock-step-btn"
         type="button"
@@ -3001,6 +3094,13 @@ function createCountdown(
   };
 }
 
+function createInactiveCountdown(label: unknown = DEFAULT_COUNTDOWN_LABEL): CountdownState {
+  return {
+    ...DEFAULT_COUNTDOWN_STATE,
+    label: normalizeCountdownLabel(label)
+  };
+}
+
 function createCountdownSchedule(
   draft: CountdownScheduleDraft
 ): CountdownSchedule | null {
@@ -3061,12 +3161,16 @@ function normalizeCountdown(value: unknown): CountdownState {
   const active =
     Boolean(record.active) && Number.isFinite(endsAt) && endsAt > Date.now();
 
+  if (!active) {
+    return createInactiveCountdown();
+  }
+
   return {
-    active,
+    active: true,
     durationSeconds,
-    endsAt: active ? endsAt : 0,
+    endsAt,
     label: normalizeCountdownLabel(record.label),
-    startedAt: active && Number.isFinite(startedAt) ? startedAt : 0
+    startedAt: Number.isFinite(startedAt) ? startedAt : 0
   };
 }
 

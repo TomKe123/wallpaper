@@ -347,8 +347,20 @@ button {
   gap: 8px;
 }
 
-.editable-clock-segment .digit-group {
+.editable-clock-segment .digit-group,
+.editable-clock-digits {
   grid-row: 2;
+}
+
+.editable-clock-digits {
+  border-radius: var(--digit-radius);
+  outline: none;
+}
+
+.editable-clock-digits:focus-visible {
+  box-shadow:
+    0 0 0 4px rgba(22, 119, 255, 0.26),
+    0 10px 30px rgba(0, 0, 0, 0.16);
 }
 
 .clock-step-btn {
@@ -691,8 +703,15 @@ button {
 }
 
 .settings-tabs button {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
   min-width: 44px;
   min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 0 8px;
   border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: 10px;
@@ -702,12 +721,65 @@ button {
   font-weight: 800;
   cursor: pointer;
   touch-action: manipulation;
+  transition:
+    color 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.settings-tabs button:hover {
+  border-color: rgba(22, 119, 255, 0.36);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
 }
 
 .settings-tabs button.active {
   color: #fff;
   border-color: rgba(22, 119, 255, 0.78);
+  background: rgba(22, 119, 255, 0.14);
+  box-shadow: 0 10px 22px rgba(22, 119, 255, 0.2);
+}
+
+.settings-tab-indicator {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
   background: #1677ff;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+    0 10px 20px rgba(22, 119, 255, 0.24);
+}
+
+.settings-tab-icon,
+.settings-tab-label {
+  position: relative;
+  z-index: 1;
+}
+
+.settings-tab-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.settings-tab-icon svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.4;
+}
+
+.settings-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settings-heading {
@@ -774,6 +846,11 @@ button {
   max-height: none;
   overflow: visible;
   overscroll-behavior: contain;
+}
+
+.settings-tab-panel {
+  display: grid;
+  gap: 10px;
 }
 
 .settings-block {
