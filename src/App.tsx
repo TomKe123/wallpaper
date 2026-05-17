@@ -43,6 +43,8 @@ interface WeatherState {
 }
 
 interface Quote {
+  from?: string;
+  fromWho?: string;
   text: string;
   source: string;
 }
@@ -1196,14 +1198,14 @@ async function fetchFilteredQuote(
       );
       const text = String(data?.hitokoto || "").trim();
       const from = String(data?.from || "").trim();
-      const fromWho = String(data?.from_who || data?.from || "").trim();
+      const fromWho = String(data?.from_who || "").trim();
 
       if (
         text &&
         !isSameQuoteText(text, previousQuote) &&
         quoteMatchesSources(from, sourceFilter)
       ) {
-        return { text, source: fromWho || from };
+        return { from, fromWho, text, source: from || fromWho };
       }
     } catch (_error) {
       // Retry below, matching the original single-file HTML behavior.
@@ -1620,7 +1622,11 @@ function normalizeQuoteCategory(category: unknown): string {
 }
 
 function formatQuoteSource(quote: Quote): string {
-  return `—— ${quote?.source || "每日一言"}`;
+  const from = String(quote?.from || quote?.source || "每日一言").trim();
+  const fromWho = String(quote?.fromWho || "").trim();
+  const author =
+    fromWho && !isSameQuoteSource(fromWho, from) ? ` ${fromWho}` : "";
+  return `——《${from}》${author}`;
 }
 
 function readStoredSettings(): AppSettings {
