@@ -13,9 +13,14 @@ import { CronExpressionParser } from "cron-parser";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   CalendarClock,
+  Check,
+  ChevronDown,
+  ChevronUp,
   Cloud,
   CloudRain,
   CloudSnow,
+  Copy,
+  Download,
   MapPin,
   Plus,
   RefreshCw,
@@ -23,6 +28,7 @@ import {
   Timer,
   TimerOff,
   Trash2,
+  Upload,
   ZoomIn,
   X
 } from "lucide-react";
@@ -120,6 +126,7 @@ interface AppSettings {
   pageScale: number;
   quoteRefreshMinutes: number;
   quoteFilters: QuoteFilter[];
+  showQuoteSource: boolean;
 }
 
 interface HitokotoCategory {
@@ -180,6 +187,21 @@ interface CountdownDialogProps {
   open: boolean;
 }
 
+interface InlineCountdownConfigProps {
+  countdown: CountdownState;
+  onCancel: () => void;
+  onStart: (duration: CountdownDurationInput, label: string) => void;
+  onStop: () => void;
+}
+
+interface ClockDurationSegmentProps {
+  label: string;
+  firstMax: number;
+  part: keyof CountdownDurationInput;
+  value: number;
+  onChange: (value: number) => void;
+}
+
 interface DigitGroupProps {
   value: string;
   firstMax: number;
@@ -193,6 +215,20 @@ interface RollingDigitProps {
 interface WeatherIconProps {
   code: number;
   status: WeatherStatus;
+}
+
+interface LivelyPropertyEvent {
+  name?: string;
+  value?: unknown;
+}
+
+declare global {
+  interface Window {
+    livelyPropertyListener?: (
+      nameOrEvent: LivelyPropertyEvent | string,
+      value?: unknown
+    ) => void;
+  }
 }
 
 type WallpaperStyle = CSSProperties & {
@@ -279,7 +315,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   manualLocation: FALLBACK_LOCATION,
   pageScale: 0.75,
   quoteRefreshMinutes: 5,
-  quoteFilters: DEFAULT_QUOTE_FILTERS
+  quoteFilters: DEFAULT_QUOTE_FILTERS,
+  showQuoteSource: true
 };
 const MAX_QUOTE_FETCH_ATTEMPTS = 8;
 const QUOTE_RETRY_DELAY_MS = 250;
@@ -369,6 +406,7 @@ function App() {
   const [settings, setSettings] = useState<AppSettings>(() => readStoredSettings());
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCountdownDialogOpen, setIsCountdownDialogOpen] = useState(false);
+  const [isCountdownInlineConfigOpen, setIsCountdownInlineConfigOpen] = useState(false);
   const [finishedCountdownLabel, setFinishedCountdownLabel] = useState("");
   const quoteRef = useRef(quote);
   const dateTapCountRef = useRef(0);
@@ -483,6 +521,28 @@ function App() {
   }, [settings]);
 
   useEffect(() => {
+    window.livelyPropertyListener = (nameOrEvent, value) => {
+      const propertyName =
+        typeof nameOrEvent === "string" ? nameOrEvent : nameOrEvent?.name;
+      const propertyValue =
+        typeof nameOrEvent === "string" ? value : nameOrEvent?.value;
+      if (propertyName !== "settingsBackupJson") {
+        return;
+      }
+      const importedSettings = parseSettingsBackup(propertyValue);
+      if (importedSettings) {
+        setSettings(importedSettings);
+      }
+    };
+
+    return () => {
+      if (window.livelyPropertyListener) {
+        delete window.livelyPropertyListener;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     setSettings((previous) => {
       const nowMs = now.getTime();
       const didCountdownFinish =
@@ -586,18 +646,6 @@ function App() {
     [handleDateBarClick]
   );
 
-  const handleGreetingClick = useCallback(() => {
-    setIsCountdownDialogOpen(true);
-  }, []);
-
-  const handleGreetingKeyDown = useCallback((event: KeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-    event.preventDefault();
-    setIsCountdownDialogOpen(true);
-  }, []);
-
   const handleLocationModeChange = useCallback((mode: LocationMode) => {
     setSettings((previous) => ({
       ...previous,
@@ -638,6 +686,13 @@ function App() {
     setSettings((previous) => ({
       ...previous,
       quoteRefreshMinutes: normalizeQuoteRefreshMinutes(minutes)
+    }));
+  }, []);
+
+  const handleShowQuoteSourceChange = useCallback((showQuoteSource: boolean) => {
+    setSettings((previous) => ({
+      ...previous,
+      showQuoteSource
     }));
   }, []);
 
@@ -689,10 +744,12 @@ function App() {
       ...previous,
       countdown: createCountdown(duration, label)
     }));
+    setIsCountdownInlineConfigOpen(false);
   }, []);
 
   const handleStopCountdown = useCallback(() => {
     suppressCountdownFinishedRef.current = true;
+    setIsCountdownInlineConfigOpen(false);
     setSettings((previous) => ({
       ...previous,
       countdown: {
@@ -804,13 +861,13 @@ function App() {
         </motion.header>
 
         <motion.div
-          className={`clock-main${isCountdownActive ? " countdown-active" : ""}`}
+          className={`clock-main${isCountdownActive && !isCountdownInlineConfigOpen ? " countdown-active" : ""}${isCountdownInlineConfigOpen ? " countdown-configuring" : ""}`}
           aria-label={countdownAriaLabel}
           initial={shouldReduceMotion ? false : { opacity: 0, y: 12 }}
           animate={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
           transition={{ duration: 0.55, delay: 0.1, ease: "easeOut" }}
         >
-          {isCountdownActive && (
+          {isCountdownActive && !isCountdownInlineConfigOpen && (
             <div className="countdown-badge" aria-live="polite">
               <span className="countdown-badge-label">
                 {settings.countdown.label}
@@ -820,7 +877,14 @@ function App() {
               </span>
             </div>
           )}
-          {isCountdownActive ? (
+          {isCountdownInlineConfigOpen ? (
+            <InlineCountdownConfig
+              countdown={settings.countdown}
+              onCancel={() => setIsCountdownInlineConfigOpen(false)}
+              onStart={handleStartCountdown}
+              onStop={handleStopCountdown}
+            />
+          ) : isCountdownActive ? (
             <span className="countdown-main-time">
               {countdownRemainingText}
             </span>
@@ -837,18 +901,24 @@ function App() {
 
         <footer className="footer-content">
           <motion.div
-            className="greeting"
-            role="button"
-            tabIndex={0}
-            aria-label="打开倒计时"
-            onClick={handleGreetingClick}
-            onKeyDown={handleGreetingKeyDown}
+            className="clock-lower-row"
             initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
             animate={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
-            whileTap={shouldReduceMotion ? undefined : { scale: 0.985 }}
-            transition={{ duration: 0.45, delay: 0.18 }}
+            transition={{ duration: 0.45, delay: 0.16 }}
           >
-            {greeting}
+            <motion.button
+              className="countdown-quick-btn"
+              type="button"
+              aria-label="启用倒计时"
+              onClick={() => setIsCountdownInlineConfigOpen(true)}
+              whileTap={shouldReduceMotion ? undefined : { scale: 0.96 }}
+            >
+              <Timer aria-hidden="true" />
+              <span>{settings.countdown.active ? "调整倒计时" : "倒计时"}</span>
+            </motion.button>
+
+            <div className="greeting">{greeting}</div>
+            <span className="clock-lower-spacer" aria-hidden="true" />
           </motion.div>
 
           <motion.div
@@ -867,7 +937,9 @@ function App() {
                 transition={{ duration: 0.22 }}
               >
                 <p className="quote-text">“{quote.text}”</p>
-                <div className="quote-source">{formatQuoteSource(quote)}</div>
+                {settings.showQuoteSource && (
+                  <div className="quote-source">{formatQuoteSource(quote)}</div>
+                )}
               </motion.div>
             </AnimatePresence>
             <IconButton
@@ -904,6 +976,8 @@ function App() {
         onAddCountdownSchedule={handleAddCountdownSchedule}
         onToggleCountdownSchedule={handleToggleCountdownSchedule}
         onRemoveCountdownSchedule={handleRemoveCountdownSchedule}
+        onShowQuoteSourceChange={handleShowQuoteSourceChange}
+        onImportSettings={setSettings}
       />
       <CountdownDialog
         countdown={settings.countdown}
@@ -937,6 +1011,7 @@ interface SettingsDialogProps {
   location: WeatherLocation;
   onAddCountdownSchedule: (schedule: CountdownSchedule) => void;
   onAddQuoteFilter: (source: string, category: string) => void;
+  onImportSettings: (settings: AppSettings) => void;
   onLocationModeChange: (mode: LocationMode) => void;
   onManualLocationChange: (location: WeatherLocation) => void;
   onOpenChange: (open: boolean) => void;
@@ -949,6 +1024,7 @@ interface SettingsDialogProps {
   onRefreshWeather: () => void;
   onRemoveCountdownSchedule: (id: string) => void;
   onRemoveQuoteFilter: (source: string) => void;
+  onShowQuoteSourceChange: (showQuoteSource: boolean) => void;
   onStopCountdown: () => void;
   onToggleCountdownSchedule: (id: string) => void;
   open: boolean;
@@ -970,8 +1046,10 @@ function SettingsDialog({
   onRefreshBackground,
   onRefreshQuote,
   onRefreshWeather,
+  onImportSettings,
   onRemoveCountdownSchedule,
   onRemoveQuoteFilter,
+  onShowQuoteSourceChange,
   onStopCountdown,
   onToggleCountdownSchedule,
   open,
@@ -990,7 +1068,6 @@ function SettingsDialog({
   const [locationSearchError, setLocationSearchError] = useState("");
   const [isLocationResolving, setIsLocationResolving] = useState(false);
   const [pageScaleInput, setPageScaleInput] = useState(String(pageScalePercent));
-  const [scheduleLabel, setScheduleLabel] = useState("");
   const [scheduleDuration, setScheduleDuration] = useState<CountdownDurationInput>(
     DEFAULT_COUNTDOWN_DURATION_INPUT
   );
@@ -1002,6 +1079,8 @@ function SettingsDialog({
   const [scheduleStartAt, setScheduleStartAt] = useState("");
   const [scheduleCron, setScheduleCron] = useState("");
   const [scheduleError, setScheduleError] = useState("");
+  const [settingsBackupInput, setSettingsBackupInput] = useState("");
+  const [settingsBackupMessage, setSettingsBackupMessage] = useState("");
 
   useEffect(() => {
     if (!open) {
@@ -1009,13 +1088,14 @@ function SettingsDialog({
       setSourceCategory(DEFAULT_QUOTE_CATEGORY);
       setLocationSearchError("");
       setIsLocationResolving(false);
-      setScheduleLabel("");
       setScheduleDuration(DEFAULT_COUNTDOWN_DURATION_INPUT);
       setScheduleRule("once");
       setScheduleCronDraft(DEFAULT_CRON_VISUAL_DRAFT);
       setScheduleStartAt("");
       setScheduleCron("");
       setScheduleError("");
+      setSettingsBackupInput("");
+      setSettingsBackupMessage("");
     }
   }, [open]);
 
@@ -1105,7 +1185,7 @@ function SettingsDialog({
             ? undefined
             : buildCronFromVisualRule(scheduleRule, scheduleCronDraft),
       duration: scheduleDuration,
-      label: scheduleLabel,
+      label: DEFAULT_COUNTDOWN_LABEL,
       mode,
       startAt: scheduleStartAt
     });
@@ -1121,12 +1201,48 @@ function SettingsDialog({
 
     onAddCountdownSchedule(normalizedSchedule);
     setScheduleError("");
-    setScheduleLabel("");
     setScheduleDuration(DEFAULT_COUNTDOWN_DURATION_INPUT);
     setScheduleRule("once");
     setScheduleCronDraft(DEFAULT_CRON_VISUAL_DRAFT);
     setScheduleStartAt("");
     setScheduleCron("");
+  };
+
+  const settingsBackupJson = useMemo(
+    () => formatSettingsBackup(settings),
+    [settings]
+  );
+
+  const handleCopySettingsBackup = async () => {
+    try {
+      await navigator.clipboard.writeText(settingsBackupJson);
+      setSettingsBackupMessage("配置已复制。");
+    } catch (_error) {
+      setSettingsBackupInput(settingsBackupJson);
+      setSettingsBackupMessage("无法直接写入剪贴板，已填入下方文本框。");
+    }
+  };
+
+  const handleDownloadSettingsBackup = () => {
+    const url = URL.createObjectURL(
+      new Blob([settingsBackupJson], { type: "application/json;charset=utf-8" })
+    );
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `wallpaper-settings-${formatBackupFileTimestamp()}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setSettingsBackupMessage("配置文件已生成。");
+  };
+
+  const handleImportSettingsBackup = () => {
+    const importedSettings = parseSettingsBackup(settingsBackupInput);
+    if (!importedSettings) {
+      setSettingsBackupMessage("配置 JSON 无效，请检查后再导入。");
+      return;
+    }
+    onImportSettings(importedSettings);
+    setSettingsBackupMessage("配置已导入。");
   };
 
   const handleDialogInteractOutside = (event: Event) => {
@@ -1265,12 +1381,6 @@ function SettingsDialog({
                     </div>
 
                     <form className="countdown-schedule-form" onSubmit={handleScheduleSubmit}>
-                      <Input
-                        aria-label="定时倒计时文案"
-                        placeholder={DEFAULT_COUNTDOWN_LABEL}
-                        value={scheduleLabel}
-                        onChange={(event) => setScheduleLabel(event.target.value)}
-                      />
                       <DurationInput
                         ariaLabelPrefix="定时倒计时"
                         value={scheduleDuration}
@@ -1389,6 +1499,16 @@ function SettingsDialog({
                       />
                       <span>分钟</span>
                     </label>
+                    <div className="settings-switch-row">
+                      <span>
+                        <strong>显示来源</strong>
+                        <small>在一言下方显示作品或作者来源</small>
+                      </span>
+                      <Switch
+                        checked={settings.showQuoteSource}
+                        onChange={onShowQuoteSourceChange}
+                      />
+                    </div>
                   </section>
 
                   <section className="settings-block">
@@ -1540,6 +1660,46 @@ function SettingsDialog({
                     </span>
                     <MotionButton onClick={onRefreshWeather}>刷新天气</MotionButton>
                   </div>
+
+                  <section className="settings-block">
+                    <div className="settings-block-head">
+                      <span className="settings-label">
+                        <Download aria-hidden="true" />
+                        配置备份
+                      </span>
+                      <span className="settings-description">
+                        Lively 若未保留网页本地存储，可用这里导出并恢复配置
+                      </span>
+                    </div>
+                    <textarea
+                      className="settings-backup-input"
+                      placeholder="粘贴配置 JSON 后导入；也可把复制出的 JSON 粘贴到 Lively 自定义里的配置备份 JSON。"
+                      value={settingsBackupInput}
+                      onChange={(event) => setSettingsBackupInput(event.target.value)}
+                    />
+                    {settingsBackupMessage && (
+                      <div className="settings-backup-message">
+                        {settingsBackupMessage}
+                      </div>
+                    )}
+                    <div className="settings-backup-actions">
+                      <MotionButton onClick={handleCopySettingsBackup}>
+                        <Copy aria-hidden="true" />
+                        复制配置
+                      </MotionButton>
+                      <MotionButton onClick={handleDownloadSettingsBackup}>
+                        <Download aria-hidden="true" />
+                        下载配置
+                      </MotionButton>
+                      <MotionButton
+                        disabled={!settingsBackupInput.trim()}
+                        onClick={handleImportSettingsBackup}
+                      >
+                        <Upload aria-hidden="true" />
+                        导入配置
+                      </MotionButton>
+                    </div>
+                  </section>
                 </div>
 
                 <div className="settings-actions">
@@ -1603,6 +1763,121 @@ function MotionButton({
   );
 }
 
+function InlineCountdownConfig({
+  countdown,
+  onCancel,
+  onStart,
+  onStop
+}: InlineCountdownConfigProps) {
+  const [duration, setDuration] = useState<CountdownDurationInput>(
+    secondsToDurationInput(countdown.durationSeconds || DEFAULT_COUNTDOWN_SECONDS)
+  );
+
+  useEffect(() => {
+    setDuration(
+      secondsToDurationInput(countdown.durationSeconds || DEFAULT_COUNTDOWN_SECONDS)
+    );
+  }, [countdown.durationSeconds]);
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onStart(duration, DEFAULT_COUNTDOWN_LABEL);
+  };
+
+  const updateDuration = (
+    key: keyof CountdownDurationInput,
+    nextValue: number
+  ) => {
+    setDuration((previous) => ({
+      ...previous,
+      [key]: normalizeDurationPart(nextValue, key)
+    }));
+  };
+
+  return (
+    <form className="inline-clock-editor" onSubmit={handleSubmit}>
+      <div className="inline-clock-inputs" aria-label="倒计时持续时间">
+        <ClockDurationSegment
+          firstMax={2}
+          label="小时"
+          part="hours"
+          value={duration.hours}
+          onChange={(nextValue) => updateDuration("hours", nextValue)}
+        />
+        <span className="time-separator">:</span>
+        <ClockDurationSegment
+          firstMax={5}
+          label="分钟"
+          part="minutes"
+          value={duration.minutes}
+          onChange={(nextValue) => updateDuration("minutes", nextValue)}
+        />
+        <span className="time-separator">:</span>
+        <ClockDurationSegment
+          firstMax={5}
+          label="秒"
+          part="seconds"
+          value={duration.seconds}
+          onChange={(nextValue) => updateDuration("seconds", nextValue)}
+        />
+      </div>
+      <div className="inline-clock-actions">
+        {countdown.active && (
+          <button type="button" onClick={onStop} aria-label="停止倒计时">
+            <TimerOff aria-hidden="true" />
+          </button>
+        )}
+        <button type="button" onClick={onCancel} aria-label="取消倒计时配置">
+          <X aria-hidden="true" />
+        </button>
+        <button type="submit" aria-label="启用倒计时">
+          <Check aria-hidden="true" />
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function ClockDurationSegment({
+  label,
+  firstMax,
+  part,
+  value,
+  onChange
+}: ClockDurationSegmentProps) {
+  const normalizedValue = normalizeDurationPart(value, part);
+  const maxValue = part === "hours" ? MAX_COUNTDOWN_HOURS : 59;
+  const displayValue = String(normalizedValue).padStart(2, "0");
+
+  return (
+    <div
+      className="editable-clock-segment"
+      role="group"
+      aria-label={`倒计时${label} ${displayValue}`}
+    >
+      <button
+        className="clock-step-btn"
+        type="button"
+        aria-label={`增加${label}`}
+        disabled={normalizedValue >= maxValue}
+        onClick={() => onChange(normalizedValue + 1)}
+      >
+        <ChevronUp aria-hidden="true" />
+      </button>
+      <DigitGroup value={displayValue} firstMax={firstMax} />
+      <button
+        className="clock-step-btn"
+        type="button"
+        aria-label={`减少${label}`}
+        disabled={normalizedValue <= 0}
+        onClick={() => onChange(normalizedValue - 1)}
+      >
+        <ChevronDown aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
 function CountdownDialog({
   countdown,
   onOpenChange,
@@ -1611,25 +1886,23 @@ function CountdownDialog({
   open
 }: CountdownDialogProps) {
   const shouldReduceMotion = useReducedMotion();
-  const [label, setLabel] = useState(countdown.label || DEFAULT_COUNTDOWN_LABEL);
   const [duration, setDuration] = useState<CountdownDurationInput>(
     secondsToDurationInput(countdown.durationSeconds || DEFAULT_COUNTDOWN_SECONDS)
   );
 
   useEffect(() => {
     if (open) {
-      setLabel(countdown.label || DEFAULT_COUNTDOWN_LABEL);
       setDuration(
         secondsToDurationInput(
           countdown.durationSeconds || DEFAULT_COUNTDOWN_SECONDS
         )
       );
     }
-  }, [countdown.durationSeconds, countdown.label, open]);
+  }, [countdown.durationSeconds, open]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    onStart(duration, label);
+    onStart(duration, DEFAULT_COUNTDOWN_LABEL);
     onOpenChange(false);
   };
 
@@ -1678,7 +1951,7 @@ function CountdownDialog({
                       倒计时
                     </Dialog.Title>
                     <Dialog.Description className="settings-subtitle">
-                      设置文案和持续时间
+                      设置持续时间
                     </Dialog.Description>
                   </div>
                   <Dialog.Close className="settings-icon-btn" aria-label="关闭倒计时设置">
@@ -1687,16 +1960,6 @@ function CountdownDialog({
                 </header>
 
                 <form className="countdown-dialog-form" onSubmit={handleSubmit}>
-                  <label className="countdown-field">
-                    <span>文案</span>
-                    <input
-                      className="settings-text-input"
-                      maxLength={24}
-                      placeholder={DEFAULT_COUNTDOWN_LABEL}
-                      value={label}
-                      onChange={(event) => setLabel(event.target.value)}
-                    />
-                  </label>
                   <label className="countdown-field">
                     <span>时间</span>
                     <DurationInput
@@ -1731,10 +1994,16 @@ function CountdownDialog({
 interface DurationInputProps {
   ariaLabelPrefix: string;
   onChange: (duration: CountdownDurationInput) => void;
+  showControls?: boolean;
   value: CountdownDurationInput;
 }
 
-function DurationInput({ ariaLabelPrefix, onChange, value }: DurationInputProps) {
+function DurationInput({
+  ariaLabelPrefix,
+  onChange,
+  showControls = false,
+  value
+}: DurationInputProps) {
   const updateDuration = (
     key: keyof CountdownDurationInput,
     nextValue: number | string | null
@@ -1749,7 +2018,7 @@ function DurationInput({ ariaLabelPrefix, onChange, value }: DurationInputProps)
     <div className="duration-input" aria-label={`${ariaLabelPrefix}持续时间`}>
       <InputNumber
         aria-label={`${ariaLabelPrefix}小时`}
-        controls={false}
+        controls={showControls}
         max={MAX_COUNTDOWN_HOURS}
         min={0}
         value={value.hours}
@@ -1758,7 +2027,7 @@ function DurationInput({ ariaLabelPrefix, onChange, value }: DurationInputProps)
       <span>:</span>
       <InputNumber
         aria-label={`${ariaLabelPrefix}分钟`}
-        controls={false}
+        controls={showControls}
         max={59}
         min={0}
         value={value.minutes}
@@ -1767,7 +2036,7 @@ function DurationInput({ ariaLabelPrefix, onChange, value }: DurationInputProps)
       <span>:</span>
       <InputNumber
         aria-label={`${ariaLabelPrefix}秒`}
-        controls={false}
+        controls={showControls}
         max={59}
         min={0}
         value={value.seconds}
@@ -2422,12 +2691,8 @@ function formatQuoteSource(quote: Quote): string {
 }
 
 function normalizeCountdownLabel(value: unknown): string {
-  return (
-    String(value || "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 24) || DEFAULT_COUNTDOWN_LABEL
-  );
+  void value;
+  return DEFAULT_COUNTDOWN_LABEL;
 }
 
 function normalizeDurationPart(
@@ -2505,6 +2770,102 @@ function normalizeCountdownDurationInput(
     normalizeDurationPart(value.minutes, "minutes") * 60 +
     normalizeDurationPart(value.seconds, "seconds");
   return secondsToDurationInput(clampCountdownSeconds(totalSeconds));
+}
+
+function normalizeCountdownDurationFromRecord(
+  record: Record<string, unknown>
+): number {
+  const explicitSeconds = firstFiniteNumber(
+    record.durationSeconds,
+    record.seconds,
+    record.totalSeconds,
+    record.countdownSeconds
+  );
+  if (explicitSeconds != null && explicitSeconds > 0) {
+    return normalizeCountdownDurationSeconds(explicitSeconds);
+  }
+
+  const durationRecord = asRecord(record.duration);
+  const durationParts =
+    Object.keys(durationRecord).length > 0
+      ? durationRecord
+      : {
+          hours: record.hours,
+          minutes: record.minutes,
+          seconds: record.seconds
+        };
+
+  if (
+    hasAnyDurationPart(durationParts) ||
+    typeof record.duration === "string"
+  ) {
+    return durationInputToSeconds(parseCountdownDuration(record.duration, durationParts));
+  }
+
+  const minutes = firstFiniteNumber(
+    record.durationMinutes,
+    record.minutes,
+    record.countdownMinutes
+  );
+  if (minutes != null && minutes > 0) {
+    return normalizeCountdownDurationSeconds(minutes * 60);
+  }
+
+  return DEFAULT_COUNTDOWN_SECONDS;
+}
+
+function firstFiniteNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    const numberValue = Number(value);
+    if (Number.isFinite(numberValue)) {
+      return numberValue;
+    }
+  }
+  return null;
+}
+
+function hasAnyDurationPart(record: Record<string, unknown>): boolean {
+  return (
+    record.hours !== undefined ||
+    record.minutes !== undefined ||
+    record.seconds !== undefined
+  );
+}
+
+function parseCountdownDuration(
+  value: unknown,
+  fallbackParts: Record<string, unknown> = {}
+): CountdownDurationInput {
+  if (typeof value === "string") {
+    const parts = value
+      .trim()
+      .split(":")
+      .map((part) => Number(part));
+    if (parts.length === 3 && parts.every(Number.isFinite)) {
+      return normalizeCountdownDurationInput({
+        hours: parts[0],
+        minutes: parts[1],
+        seconds: parts[2]
+      });
+    }
+    if (parts.length === 2 && parts.every(Number.isFinite)) {
+      return normalizeCountdownDurationInput({
+        hours: 0,
+        minutes: parts[0],
+        seconds: parts[1]
+      });
+    }
+    const numericSeconds = Number(value);
+    if (Number.isFinite(numericSeconds) && numericSeconds > 0) {
+      return secondsToDurationInput(numericSeconds);
+    }
+  }
+
+  return normalizeCountdownDurationInput({
+    hours: firstFiniteNumber(fallbackParts.hours) ?? 0,
+    minutes: firstFiniteNumber(fallbackParts.minutes) ?? 0,
+    seconds: firstFiniteNumber(fallbackParts.seconds) ?? 0
+  });
 }
 
 function normalizeCountdownDurationSeconds(value: unknown): number {
@@ -2610,9 +2971,7 @@ function toggleCountdownSchedule(schedule: CountdownSchedule): CountdownSchedule
 
 function normalizeCountdown(value: unknown): CountdownState {
   const record = asRecord(value);
-  const durationSeconds = normalizeCountdownDurationSeconds(
-    record.durationSeconds
-  );
+  const durationSeconds = normalizeCountdownDurationFromRecord(record);
   const startedAt = Number(record.startedAt);
   const endsAt = Number(record.endsAt);
   const active =
@@ -2629,13 +2988,15 @@ function normalizeCountdown(value: unknown): CountdownState {
 
 function normalizeCountdownSchedule(value: unknown): CountdownSchedule | null {
   const record = asRecord(value);
-  const mode: CountdownScheduleMode = record.mode === "cron" ? "cron" : "once";
-  const startAt = String(record.startAt || "").trim() || undefined;
-  const cron = normalizeCronExpression(record.cron);
+  const migratedCron = normalizeScheduleCron(record);
+  const mode: CountdownScheduleMode =
+    record.mode === "cron" || migratedCron ? "cron" : "once";
+  const startAt = normalizeScheduleStartAt(record);
+  const cron = normalizeCronExpression(migratedCron || record.cron);
   const enabled = record.enabled !== false;
   const schedule: CountdownSchedule = {
     cron: mode === "cron" ? cron || undefined : undefined,
-    durationSeconds: normalizeCountdownDurationSeconds(record.durationSeconds),
+    durationSeconds: normalizeCountdownDurationFromRecord(record),
     enabled,
     id: String(record.id || `schedule-${Date.now()}-${Math.random()}`).trim(),
     label: normalizeCountdownLabel(record.label),
@@ -2662,11 +3023,100 @@ function normalizeCountdownSchedule(value: unknown): CountdownSchedule | null {
   return schedule;
 }
 
-function normalizeCountdownSchedules(value: unknown): CountdownSchedule[] {
-  if (!Array.isArray(value)) {
-    return [];
+function normalizeScheduleStartAt(record: Record<string, unknown>): string | undefined {
+  const rawStartAt =
+    record.startAt ??
+    record.startsAt ??
+    record.startTime ??
+    record.dateTime ??
+    record.time;
+  if (rawStartAt == null) {
+    return undefined;
   }
-  return value
+  if (typeof rawStartAt === "number" && Number.isFinite(rawStartAt)) {
+    return new Date(rawStartAt).toISOString().slice(0, 16);
+  }
+  const value = String(rawStartAt).trim();
+  return value || undefined;
+}
+
+function normalizeScheduleCron(record: Record<string, unknown>): string {
+  const directCron = normalizeCronExpression(record.cron || record.cronExpression);
+  if (directCron) {
+    return directCron;
+  }
+
+  const rule = String(record.rule || record.preset || record.frequency || "").trim();
+  if (!rule || rule === "once") {
+    return "";
+  }
+
+  const draft: CronVisualDraft = {
+    dayOfMonth: normalizeCronVisualPart(
+      "dayOfMonth",
+      record.dayOfMonth ?? record.day ?? DEFAULT_CRON_VISUAL_DRAFT.dayOfMonth
+    ),
+    hour: normalizeCronVisualPart(
+      "hour",
+      record.hour ?? record.hours ?? DEFAULT_CRON_VISUAL_DRAFT.hour
+    ),
+    minute: normalizeCronVisualPart(
+      "minute",
+      record.minute ?? record.minutes ?? DEFAULT_CRON_VISUAL_DRAFT.minute
+    ),
+    month: normalizeCronVisualPart(
+      "month",
+      record.month ?? DEFAULT_CRON_VISUAL_DRAFT.month
+    ),
+    weekday: normalizeCronVisualPart(
+      "weekday",
+      record.weekday ?? record.dayOfWeek ?? DEFAULT_CRON_VISUAL_DRAFT.weekday
+    )
+  };
+
+  const normalizedRule = normalizeScheduleRule(rule);
+  return normalizedRule ? buildCronFromVisualRule(normalizedRule, draft) : "";
+}
+
+function normalizeScheduleRule(value: string): CronVisualFrequency | "" {
+  if (value === "every-minute" || value === "minute" || value === "minutely") {
+    return "minute";
+  }
+  if (value === "hour" || value === "hourly") {
+    return "hourly";
+  }
+  if (value === "day" || value === "daily" || value === "every-day") {
+    return "daily";
+  }
+  if (value === "weekday" || value === "weekdays" || value === "workday") {
+    return "weekdays";
+  }
+  if (value === "week" || value === "weekly") {
+    return "weekly";
+  }
+  if (value === "weekend" || value === "weekends") {
+    return "weekends";
+  }
+  if (value === "month" || value === "monthly") {
+    return "monthly";
+  }
+  if (value === "year" || value === "yearly" || value === "annual") {
+    return "yearly";
+  }
+  return "";
+}
+
+function normalizeCountdownSchedules(value: unknown): CountdownSchedule[] {
+  let schedules: unknown[] = [];
+  if (Array.isArray(value)) {
+    schedules = value;
+  } else {
+    const record = asRecord(value);
+    if (Array.isArray(record.schedules)) {
+      schedules = record.schedules;
+    }
+  }
+  return schedules
     .map(normalizeCountdownSchedule)
     .filter((item): item is CountdownSchedule => Boolean(item));
 }
@@ -2811,35 +3261,60 @@ function formatDateTime(value: number): string {
   ).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
+function normalizeSettings(value: unknown): AppSettings {
+  const parsed = asRecord(value);
+  const migratedMode =
+    parsed.locationMode === "manual" || parsed.locationMode === "browser"
+      ? parsed.locationMode
+      : parsed.useBrowserLocation === false
+        ? "manual"
+        : DEFAULT_SETTINGS.locationMode;
+
+  return {
+    ...DEFAULT_SETTINGS,
+    locationMode: migratedMode,
+    manualLocation:
+      normalizeLocation(parsed.manualLocation) || DEFAULT_SETTINGS.manualLocation,
+    pageScale: normalizePageScale(parsed.pageScale),
+    quoteRefreshMinutes: normalizeQuoteRefreshMinutes(parsed.quoteRefreshMinutes),
+    quoteFilters: normalizeQuoteFilters(parsed).length
+      ? normalizeQuoteFilters(parsed)
+      : DEFAULT_SETTINGS.quoteFilters,
+    showQuoteSource: parsed.showQuoteSource !== false,
+    countdown: normalizeCountdown(parsed.countdown),
+    countdownSchedules: normalizeCountdownSchedules(
+      parsed.countdownSchedules ?? parsed.schedules ?? parsed.countdownSchedule
+    )
+  };
+}
+
+function formatSettingsBackup(settings: AppSettings): string {
+  return JSON.stringify(normalizeSettings(settings), null, 2);
+}
+
+function parseSettingsBackup(value: unknown): AppSettings | null {
+  try {
+    const source = String(value || "").trim();
+    if (!source) {
+      return null;
+    }
+    return normalizeSettings(JSON.parse(source));
+  } catch (_error) {
+    return null;
+  }
+}
+
+function formatBackupFileTimestamp(): string {
+  return new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+}
+
 function readStoredSettings(): AppSettings {
   try {
     const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!raw) {
       return DEFAULT_SETTINGS;
     }
-    const parsed = asRecord(JSON.parse(raw));
-    const migratedMode =
-      parsed.locationMode === "manual" || parsed.locationMode === "browser"
-        ? parsed.locationMode
-        : parsed.useBrowserLocation === false
-          ? "manual"
-          : DEFAULT_SETTINGS.locationMode;
-
-    return {
-      ...DEFAULT_SETTINGS,
-      locationMode: migratedMode,
-      manualLocation:
-        normalizeLocation(parsed.manualLocation) || DEFAULT_SETTINGS.manualLocation,
-      pageScale: normalizePageScale(parsed.pageScale),
-      quoteRefreshMinutes: normalizeQuoteRefreshMinutes(
-        parsed.quoteRefreshMinutes
-      ),
-      quoteFilters: normalizeQuoteFilters(parsed).length
-        ? normalizeQuoteFilters(parsed)
-        : DEFAULT_SETTINGS.quoteFilters,
-      countdown: normalizeCountdown(parsed.countdown),
-      countdownSchedules: normalizeCountdownSchedules(parsed.countdownSchedules)
-    };
+    return normalizeSettings(JSON.parse(raw));
   } catch (_error) {
     return DEFAULT_SETTINGS;
   }
