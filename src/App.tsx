@@ -526,7 +526,7 @@ function App() {
 
   useEffect(() => {
     refreshWeather();
-    const timerId = window.setInterval(refreshWeather, 30 * 60 * 1000);
+    const timerId = window.setInterval(refreshWeather, 5 * 60 * 1000);
     return () => window.clearInterval(timerId);
   }, [refreshWeather]);
 
