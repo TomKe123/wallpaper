@@ -685,6 +685,19 @@ button {
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.32);
   color: var(--ink);
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-panel:not([style]) .settings-list,
+.settings-panel:not([style]) .settings-actions {
+  flex: 0 0 auto;
+}
+
+.settings-panel[style] .settings-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .settings-header {
@@ -1650,6 +1663,36 @@ button {
   background: #fff;
 }
 
+.settings-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 4px;
+  border: 0;
+  border-radius: 0 0 18px;
+  color: rgba(0, 0, 0, 0.32);
+  background: transparent;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+.settings-resize-handle svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.6;
+}
+
+.settings-resize-handle:hover {
+  color: rgba(0, 0, 0, 0.56);
+  background: rgba(0, 0, 0, 0.04);
+}
+
 @media (hover: none) {
   .countdown-quick-btn:hover,
   .quote-refresh-btn:hover,
@@ -1664,6 +1707,11 @@ button {
 
   .inline-clock-actions button:hover {
     background: rgba(255, 255, 255, 0.72);
+  }
+
+  .settings-resize-handle:hover {
+    background: transparent;
+    color: rgba(0, 0, 0, 0.32);
   }
 }
 

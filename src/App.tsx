@@ -22,6 +22,8 @@ import {
   CloudSnow,
   Copy,
   Download,
+  Grip,
+  Image as ImageIcon,
   MapPin,
   Plus,
   RefreshCw,
@@ -123,6 +125,7 @@ interface CronVisualDraft {
 interface AppSettings {
   countdown: CountdownState;
   countdownSchedules: CountdownSchedule[];
+  customWallpaper: string;
   locationMode: LocationMode;
   manualLocation: WeatherLocation;
   pageScale: number;
@@ -334,6 +337,7 @@ const DEFAULT_QUOTE_FILTERS: QuoteFilter[] = [
 const DEFAULT_SETTINGS: AppSettings = {
   countdown: createInactiveCountdown(),
   countdownSchedules: [],
+  customWallpaper: "",
   locationMode: "browser",
   manualLocation: FALLBACK_LOCATION,
   pageScale: 0.75,
@@ -712,6 +716,13 @@ function App() {
     }));
   }, []);
 
+  const handleCustomWallpaperChange = useCallback((dataUrl: string) => {
+    setSettings((previous) => ({
+      ...previous,
+      customWallpaper: dataUrl
+    }));
+  }, []);
+
   const handleQuoteRefreshMinutesChange = useCallback((minutes: number | string) => {
     setSettings((previous) => ({
       ...previous,
@@ -844,10 +855,11 @@ function App() {
   const countdownAriaLabel = isCountdownActive
     ? `${settings.countdown.label} ${countdownRemainingText}`
     : formatTimeLabel(timeParts);
+  const effectiveBackgroundUrl = settings.customWallpaper || backgroundUrl;
   const wallpaperStyle: WallpaperStyle = {
     "--countdown-progress": countdownProgress,
     "--page-scale": settings.pageScale,
-    "--wallpaper-image": `url("${escapeCssUrl(backgroundUrl)}")`
+    "--wallpaper-image": `url("${escapeCssUrl(effectiveBackgroundUrl)}")`
   };
 
   return (
@@ -992,6 +1004,7 @@ function App() {
         onRefreshQuote={refreshQuote}
         onRefreshWeather={refreshWeather}
         onPageScaleChange={handlePageScaleChange}
+        onCustomWallpaperChange={handleCustomWallpaperChange}
         onQuoteRefreshMinutesChange={handleQuoteRefreshMinutesChange}
         onAddQuoteFilter={handleAddQuoteFilter}
         onRemoveQuoteFilter={handleRemoveQuoteFilter}
@@ -1036,6 +1049,7 @@ interface SettingsDialogProps {
   location: WeatherLocation;
   onAddCountdownSchedule: (schedule: CountdownSchedule) => void;
   onAddQuoteFilter: (source: string, category: string) => void;
+  onCustomWallpaperChange: (dataUrl: string) => void;
   onImportSettings: (settings: AppSettings) => void;
   onLocationModeChange: (mode: LocationMode) => void;
   onManualLocationChange: (location: WeatherLocation) => void;
@@ -1061,6 +1075,8 @@ function SettingsDialog({
   location,
   onAddCountdownSchedule,
   onAddQuoteFilter,
+  onCustomWallpaperChange,
+  onImportSettings,
   onLocationModeChange,
   onManualLocationChange,
   onOpenChange,
@@ -1071,7 +1087,6 @@ function SettingsDialog({
   onRefreshBackground,
   onRefreshQuote,
   onRefreshWeather,
-  onImportSettings,
   onRemoveCountdownSchedule,
   onRemoveQuoteFilter,
   onShowQuoteSourceChange,
@@ -1093,6 +1108,7 @@ function SettingsDialog({
   const [locationSearchError, setLocationSearchError] = useState("");
   const [isLocationResolving, setIsLocationResolving] = useState(false);
   const [pageScaleInput, setPageScaleInput] = useState(String(pageScalePercent));
+  const wallpaperInputRef = useRef<HTMLInputElement>(null);
   const [scheduleDuration, setScheduleDuration] = useState<CountdownDurationInput>(
     DEFAULT_COUNTDOWN_DURATION_INPUT
   );
@@ -1108,6 +1124,7 @@ function SettingsDialog({
   const [settingsBackupMessage, setSettingsBackupMessage] = useState("");
   const [activeSettingsTab, setActiveSettingsTab] =
     useState<SettingsTab>("display");
+  const [panelSize, setPanelSize] = useState<{ w: number; h: number } | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -1284,6 +1301,83 @@ function SettingsDialog({
     }
   };
 
+  const MAX_WALLPAPER_SIZE = 5 * 1024 * 1024;
+
+  const handleUploadWallpaper = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > MAX_WALLPAPER_SIZE) {
+      alert("图片大小不能超过 5MB");
+      event.target.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result;
+      if (typeof dataUrl === "string") {
+        onCustomWallpaperChange(dataUrl);
+      }
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  };
+
+  const handleRemoveCustomWallpaper = () => {
+    onCustomWallpaperChange("");
+  };
+
+  const handleResizePointerDown = (
+    e: React.MouseEvent<HTMLElement> | React.TouchEvent<HTMLElement>
+  ) => {
+    e.preventDefault();
+    const panel = (e.currentTarget as HTMLElement).closest(
+      ".settings-panel"
+    ) as HTMLElement | null;
+    if (!panel) return;
+
+    const rect = panel.getBoundingClientRect();
+    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
+    const startW = rect.width;
+    const startH = rect.height;
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      const dx = ev.clientX - clientX;
+      const dy = ev.clientY - clientY;
+      const newW = Math.max(360, Math.min(window.innerWidth - 48, startW + dx));
+      const newH = Math.max(300, Math.min(window.innerHeight - 48, startH + dy));
+      setPanelSize({ w: newW, h: newH });
+    };
+
+    const handleTouchMove = (ev: TouchEvent) => {
+      const t = ev.touches[0];
+      if (!t) return;
+      const dx = t.clientX - clientX;
+      const dy = t.clientY - clientY;
+      const newW = Math.max(360, Math.min(window.innerWidth - 48, startW + dx));
+      const newH = Math.max(300, Math.min(window.innerHeight - 48, startH + dy));
+      setPanelSize({ w: newW, h: newH });
+    };
+
+    const handleUp = () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleUp);
+      document.removeEventListener("touchmove", handleTouchMove);
+      document.removeEventListener("touchend", handleUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleUp);
+    document.addEventListener("touchmove", handleTouchMove, { passive: true });
+    document.addEventListener("touchend", handleUp);
+    document.body.style.cursor = "nwse-resize";
+    document.body.style.userSelect = "none";
+  };
+
   return (
     <Dialog.Root modal={false} open={open} onOpenChange={onOpenChange}>
       <AnimatePresence>
@@ -1305,6 +1399,7 @@ function SettingsDialog({
             >
               <motion.section
                 className="settings-panel"
+                style={panelSize ? { width: panelSize.w, height: panelSize.h } : undefined}
                 initial={
                   shouldReduceMotion
                     ? false
@@ -1401,6 +1496,7 @@ function SettingsDialog({
                       transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
                     >
                   {activeSettingsTab === "display" && (
+                  <>
                   <section className="settings-block">
                     <div className="settings-block-head">
                       <span className="settings-label">
@@ -1448,6 +1544,40 @@ function SettingsDialog({
                       </button>
                     </label>
                   </section>
+
+                  <section className="settings-block">
+                    <div className="settings-block-head">
+                      <span className="settings-label">
+                        <ImageIcon aria-hidden="true" />
+                        自定义壁纸
+                      </span>
+                      <span className="settings-description">
+                        上传本地图片作为壁纸背景
+                      </span>
+                    </div>
+                    <div className="settings-backup-actions">
+                      <input
+                        ref={wallpaperInputRef}
+                        type="file"
+                        accept="image/*"
+                        style={{ display: "none" }}
+                        onChange={handleUploadWallpaper}
+                      />
+                      <MotionButton
+                        onClick={() => wallpaperInputRef.current?.click()}
+                      >
+                        <Upload aria-hidden="true" />
+                        选择图片
+                      </MotionButton>
+                      {settings.customWallpaper && (
+                        <MotionButton onClick={handleRemoveCustomWallpaper}>
+                          <Trash2 aria-hidden="true" />
+                          移除壁纸
+                        </MotionButton>
+                      )}
+                    </div>
+                  </section>
+                  </>
                   )}
 
                   {activeSettingsTab === "countdown" && (
@@ -1830,6 +1960,15 @@ function SettingsDialog({
                   <MotionButton onClick={onRefreshBackground}>刷新壁纸</MotionButton>
                   <MotionButton onClick={onRefreshQuote}>刷新语录</MotionButton>
                 </div>
+                <button
+                  className="settings-resize-handle"
+                  type="button"
+                  aria-label="拖拽调整设置面板大小"
+                  onMouseDown={handleResizePointerDown}
+                  onTouchStart={handleResizePointerDown}
+                >
+                  <Grip aria-hidden="true" />
+                </button>
               </motion.section>
             </Dialog.Content>
           </Dialog.Portal>
@@ -3472,7 +3611,11 @@ function normalizeSettings(value: unknown): AppSettings {
     countdown: normalizeCountdown(parsed.countdown),
     countdownSchedules: normalizeCountdownSchedules(
       parsed.countdownSchedules ?? parsed.schedules ?? parsed.countdownSchedule
-    )
+    ),
+    customWallpaper:
+      typeof parsed.customWallpaper === "string" && parsed.customWallpaper.startsWith("data:")
+        ? parsed.customWallpaper
+        : DEFAULT_SETTINGS.customWallpaper
   };
 }
 
