@@ -11,11 +11,21 @@
   --scrollbar-track: rgba(5, 5, 5, 0.04);
   --scrollbar-thumb: rgba(5, 5, 5, 0.18);
   --scrollbar-thumb-hover: #1677ff;
-  --panel-bg: rgba(255, 255, 255, 0.88);
-  --panel-border: rgba(255, 255, 255, 0.34);
+  --frosted-bg: rgba(255, 255, 255, 0.38);
+  --frosted-bg-strong: rgba(255, 255, 255, 0.48);
+  --frosted-bg-soft: rgba(255, 255, 255, 0.22);
+  --frosted-control: rgba(255, 255, 255, 0.3);
+  --frosted-control-hover: rgba(255, 255, 255, 0.42);
+  --frosted-border: rgba(255, 255, 255, 0.5);
+  --frosted-border-soft: rgba(255, 255, 255, 0.28);
+  --frosted-blur: blur(18px) saturate(1.55);
+  --panel-bg: var(--frosted-bg);
+  --panel-border: var(--frosted-border);
   --ink: #171717;
   --ink-muted: #474747;
-  --shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+  --shadow:
+    0 24px 70px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.36);
   font-family: "HarmonyOS Sans SC", "Inter", "PingFang SC", "Microsoft YaHei",
     sans-serif;
 }
@@ -159,8 +169,8 @@ button {
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(9px);
-  -webkit-backdrop-filter: blur(9px);
+  backdrop-filter: var(--frosted-blur);
+  -webkit-backdrop-filter: var(--frosted-blur);
 }
 
 .info-header {
@@ -243,7 +253,8 @@ button {
   border: var(--countdown-ring-size) solid transparent;
   border-radius: calc(28px + var(--countdown-ring-size));
   background:
-    linear-gradient(var(--panel-bg), var(--panel-bg)) padding-box,
+    linear-gradient(var(--frosted-bg-strong), var(--frosted-bg-strong))
+      padding-box,
     conic-gradient(
         from 0deg,
         rgba(22, 119, 255, 0.96) 0deg var(--countdown-progress),
@@ -288,17 +299,17 @@ button {
   top: 18px;
   z-index: 1;
   padding: 0 14px;
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--frosted-border);
   border-radius: 999px;
   color: #171717;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--frosted-control);
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.12);
   font-size: 18px;
   font-weight: 800;
   letter-spacing: 0;
   font-variant-numeric: tabular-nums;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: var(--frosted-blur);
+  -webkit-backdrop-filter: var(--frosted-blur);
 }
 
 .countdown-badge-label,
@@ -371,16 +382,16 @@ button {
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--frosted-border-soft);
   border-radius: 999px;
   color: #202020;
-  background: rgba(255, 255, 255, 0.58);
+  background: var(--frosted-control);
   cursor: pointer;
   touch-action: manipulation;
 }
 
 .clock-step-btn:hover:not(:disabled) {
-  background: #fff;
+  background: var(--frosted-control-hover);
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.12);
 }
 
@@ -421,16 +432,16 @@ button {
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--frosted-border-soft);
   border-radius: 999px;
   color: #202020;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--frosted-control);
   cursor: pointer;
   touch-action: manipulation;
 }
 
 .inline-clock-actions button:hover {
-  background: #fff;
+  background: var(--frosted-control-hover);
 }
 
 .inline-clock-actions button:focus-visible {
@@ -524,8 +535,8 @@ button {
   color: #202020;
   background: var(--panel-bg);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(9px);
-  -webkit-backdrop-filter: blur(9px);
+  backdrop-filter: var(--frosted-blur);
+  -webkit-backdrop-filter: var(--frosted-blur);
   font-size: 16px;
   font-weight: 800;
   cursor: pointer;
@@ -538,7 +549,7 @@ button {
 }
 
 .countdown-quick-btn:hover {
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--frosted-bg-strong);
   box-shadow:
     var(--shadow),
     0 0 0 1px rgba(255, 255, 255, 0.46);
@@ -617,10 +628,10 @@ button {
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--frosted-border-soft);
   border-radius: 999px;
   color: #333;
-  background: rgba(255, 255, 255, 0.74);
+  background: var(--frosted-control);
   cursor: pointer;
   outline: none;
   touch-action: manipulation;
@@ -631,7 +642,7 @@ button {
 }
 
 .quote-refresh-btn:hover {
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--frosted-control-hover);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
   transform: scale(1.05);
 }
@@ -666,9 +677,9 @@ button {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(0, 0, 0, 0.38);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: rgba(0, 0, 0, 0.26);
+  backdrop-filter: blur(12px) saturate(1.25);
+  -webkit-backdrop-filter: blur(12px) saturate(1.25);
 }
 
 .settings-panel {
@@ -680,13 +691,17 @@ button {
   max-height: calc(100vh - 48px);
   overflow: visible;
   padding: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.38);
+  border: 1px solid var(--frosted-border);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.32);
+  background: var(--frosted-bg-strong);
+  box-shadow:
+    0 28px 80px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42);
   color: var(--ink);
   display: flex;
   flex-direction: column;
+  backdrop-filter: var(--frosted-blur);
+  -webkit-backdrop-filter: var(--frosted-blur);
 }
 
 .settings-panel:not([style]) .settings-list,
@@ -726,10 +741,10 @@ button {
   justify-content: center;
   gap: 4px;
   padding: 0 6px;
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--frosted-border-soft);
   border-radius: 9px;
   color: #333;
-  background: rgba(255, 255, 255, 0.62);
+  background: var(--frosted-control);
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
@@ -744,7 +759,7 @@ button {
 
 .settings-tabs button:hover {
   border-color: rgba(22, 119, 255, 0.36);
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--frosted-control-hover);
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
   transform: translateY(-1px);
 }
@@ -888,9 +903,9 @@ button {
   gap: 14px;
   min-height: 46px;
   padding: 8px 12px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--frosted-border-soft);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--frosted-bg-soft);
 }
 
 .settings-copy {
@@ -948,10 +963,10 @@ button {
   justify-content: center;
   gap: 5px;
   padding: 0 10px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--frosted-border-soft);
   border-radius: 9px;
   color: #191919;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--frosted-control);
   font-size: 12px;
   font-weight: 750;
   cursor: pointer;
@@ -972,7 +987,7 @@ button {
 }
 
 .settings-action-btn:hover {
-  background: #fff;
+  background: var(--frosted-control-hover);
 }
 
 .scale-step-btn {
@@ -982,10 +997,10 @@ button {
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--frosted-border-soft);
   border-radius: 9px;
   color: #191919;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--frosted-control);
   font-size: 18px;
   font-weight: 900;
   cursor: pointer;
@@ -1008,10 +1023,10 @@ button {
   min-height: 36px;
   height: 36px;
   padding: 0 10px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--frosted-border-soft);
   border-radius: 9px;
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--frosted-control);
   font-size: 13px;
   outline: none;
 }
@@ -1025,9 +1040,9 @@ button {
 .settings-select .ant-select-selector {
   height: 36px !important;
   min-height: 36px;
-  border-color: rgba(0, 0, 0, 0.12) !important;
+  border-color: var(--frosted-border-soft) !important;
   border-radius: 9px !important;
-  background: rgba(255, 255, 255, 0.72) !important;
+  background: var(--frosted-control) !important;
   box-shadow: none !important;
 }
 
