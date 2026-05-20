@@ -126,6 +126,7 @@ interface AppSettings {
   countdown: CountdownState;
   countdownSchedules: CountdownSchedule[];
   customWallpaper: string;
+  examMode: boolean;
   locationMode: LocationMode;
   manualLocation: WeatherLocation;
   pageScale: number;
@@ -338,6 +339,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   countdown: createInactiveCountdown(),
   countdownSchedules: [],
   customWallpaper: "",
+  examMode: false,
   locationMode: "browser",
   manualLocation: FALLBACK_LOCATION,
   pageScale: 0.75,
@@ -737,6 +739,16 @@ function App() {
     }));
   }, []);
 
+  const handleExamModeChange = useCallback((examMode: boolean) => {
+    setSettings((previous) => ({
+      ...previous,
+      examMode
+    }));
+    if (examMode) {
+      setIsCountdownInlineConfigOpen(false);
+    }
+  }, []);
+
   const handleAddQuoteFilter = useCallback((source: string, category: string) => {
     const normalized = cleanQuoteSource(source);
     if (!normalized) return;
@@ -848,11 +860,15 @@ function App() {
   );
   const isCountdownActive =
     settings.countdown.active && countdownRemainingSeconds > 0;
+  const isExamMode = settings.examMode;
+  const shouldShowCountdown = !isExamMode && isCountdownActive;
+  const isCountdownInlineConfigVisible =
+    !isExamMode && isCountdownInlineConfigOpen;
   const countdownProgress = `${getCountdownProgress(
     settings.countdown,
     countdownRemainingSeconds
   )}deg`;
-  const countdownAriaLabel = isCountdownActive
+  const countdownAriaLabel = shouldShowCountdown
     ? `${settings.countdown.label} ${countdownRemainingText}`
     : formatTimeLabel(timeParts);
   const effectiveBackgroundUrl = settings.customWallpaper || backgroundUrl;
@@ -868,7 +884,7 @@ function App() {
       style={wallpaperStyle}
     >
       <motion.section
-        className="clock-container"
+        className={`clock-container${isExamMode ? " exam-mode" : ""}`}
         aria-label="滚动时钟壁纸"
         initial={shouldReduceMotion ? false : { opacity: 0 }}
         animate={shouldReduceMotion ? undefined : { opacity: 1 }}
@@ -898,13 +914,13 @@ function App() {
         </motion.header>
 
         <motion.div
-          className={`clock-main${isCountdownActive && !isCountdownInlineConfigOpen ? " countdown-active" : ""}${isCountdownInlineConfigOpen ? " countdown-configuring" : ""}`}
+          className={`clock-main${shouldShowCountdown ? " countdown-active" : ""}${isCountdownInlineConfigVisible ? " countdown-configuring" : ""}${isExamMode ? " exam-mode" : ""}`}
           aria-label={countdownAriaLabel}
           initial={shouldReduceMotion ? false : { opacity: 0, y: 12 }}
           animate={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
           transition={{ duration: 0.55, delay: 0.1, ease: "easeOut" }}
         >
-          {isCountdownActive && !isCountdownInlineConfigOpen && (
+          {shouldShowCountdown && !isCountdownInlineConfigVisible && (
             <div className="countdown-badge" aria-live="polite">
               <span className="countdown-badge-label">
                 {settings.countdown.label}
@@ -914,14 +930,14 @@ function App() {
               </span>
             </div>
           )}
-          {isCountdownInlineConfigOpen ? (
+          {isCountdownInlineConfigVisible ? (
             <InlineCountdownConfig
               countdown={settings.countdown}
               onCancel={() => setIsCountdownInlineConfigOpen(false)}
               onStart={handleStartCountdown}
               onStop={handleStopCountdown}
             />
-          ) : isCountdownActive ? (
+          ) : shouldShowCountdown ? (
             <span className="countdown-main-time">
               {countdownRemainingText}
             </span>
@@ -936,14 +952,15 @@ function App() {
           )}
         </motion.div>
 
-        <footer className="footer-content">
+        <footer className={`footer-content${isExamMode ? " exam-mode" : ""}`}>
           <motion.div
-            className="clock-lower-row"
+            className={`clock-lower-row${isExamMode ? " exam-mode" : ""}`}
             initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
             animate={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
             transition={{ duration: 0.45, delay: 0.16 }}
           >
-            <motion.button
+            {!isExamMode && (
+              <motion.button
               className="countdown-quick-btn"
               type="button"
               aria-label="启用倒计时"
@@ -953,12 +970,18 @@ function App() {
               <Timer aria-hidden="true" />
               <span>{settings.countdown.active ? "调整倒计时" : "倒计时"}</span>
             </motion.button>
+            )}
 
-            <div className="greeting">{greeting}</div>
-            <span className="clock-lower-spacer" aria-hidden="true" />
+            <div className={`greeting${isExamMode ? " exam-mode" : ""}`}>
+              {isExamMode ? "请注意时间，诚信考试" : greeting}
+            </div>
+            {!isExamMode && (
+              <span className="clock-lower-spacer" aria-hidden="true" />
+            )}
           </motion.div>
 
-          <motion.div
+          {!isExamMode && (
+            <motion.div
             className={`quote-shell${isQuoteLoading ? " loading" : ""}`}
             layout={!shouldReduceMotion}
             initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
@@ -989,7 +1012,8 @@ function App() {
               <RefreshCw aria-hidden="true" />
             </IconButton>
           </motion.div>
-        </footer>
+          )}
+          </footer>
       </motion.section>
 
       <SettingsDialog
@@ -1005,6 +1029,7 @@ function App() {
         onRefreshWeather={refreshWeather}
         onPageScaleChange={handlePageScaleChange}
         onCustomWallpaperChange={handleCustomWallpaperChange}
+        onExamModeChange={handleExamModeChange}
         onQuoteRefreshMinutesChange={handleQuoteRefreshMinutesChange}
         onAddQuoteFilter={handleAddQuoteFilter}
         onRemoveQuoteFilter={handleRemoveQuoteFilter}
@@ -1025,7 +1050,7 @@ function App() {
         onStop={handleStopCountdown}
       />
       <AnimatePresence>
-        {finishedCountdownLabel && (
+        {!isExamMode && finishedCountdownLabel && (
           <motion.div
             className="countdown-finished"
             role="alert"
@@ -1050,6 +1075,7 @@ interface SettingsDialogProps {
   onAddCountdownSchedule: (schedule: CountdownSchedule) => void;
   onAddQuoteFilter: (source: string, category: string) => void;
   onCustomWallpaperChange: (dataUrl: string) => void;
+  onExamModeChange: (examMode: boolean) => void;
   onImportSettings: (settings: AppSettings) => void;
   onLocationModeChange: (mode: LocationMode) => void;
   onManualLocationChange: (location: WeatherLocation) => void;
@@ -1076,6 +1102,7 @@ function SettingsDialog({
   onAddCountdownSchedule,
   onAddQuoteFilter,
   onCustomWallpaperChange,
+  onExamModeChange,
   onImportSettings,
   onLocationModeChange,
   onManualLocationChange,
@@ -1543,6 +1570,17 @@ function SettingsDialog({
                         +
                       </button>
                     </label>
+
+                    <div className="settings-switch-row">
+                      <span>
+                        <strong>考场模式</strong>
+                        <small>开启后主界面只显示日期、时间和天气</small>
+                      </span>
+                      <Switch
+                        checked={settings.examMode}
+                        onChange={onExamModeChange}
+                      />
+                    </div>
                   </section>
 
                   <section className="settings-block">
@@ -3612,6 +3650,7 @@ function normalizeSettings(value: unknown): AppSettings {
     countdownSchedules: normalizeCountdownSchedules(
       parsed.countdownSchedules ?? parsed.schedules ?? parsed.countdownSchedule
     ),
+    examMode: parsed.examMode === true,
     customWallpaper:
       typeof parsed.customWallpaper === "string" && parsed.customWallpaper.startsWith("data:")
         ? parsed.customWallpaper

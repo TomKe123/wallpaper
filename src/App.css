@@ -162,6 +162,10 @@ button {
   transform-origin: center;
 }
 
+.clock-container.exam-mode {
+  gap: 42px;
+}
+
 .info-header,
 .clock-main,
 .greeting,
@@ -514,12 +518,22 @@ button {
   text-align: center;
 }
 
+.footer-content.exam-mode {
+  width: min(980px, 86vw);
+}
+
 .clock-lower-row {
   width: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 16px;
+}
+
+.clock-lower-row.exam-mode {
+  display: flex;
+  justify-content: center;
+  width: 100%;
 }
 
 .countdown-quick-btn {
@@ -581,6 +595,10 @@ button {
   font-weight: 600;
   letter-spacing: 8px;
   white-space: nowrap;
+}
+
+.greeting.exam-mode {
+  padding: 14px 68px;
 }
 
 .quote-shell {
