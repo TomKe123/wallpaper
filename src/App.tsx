@@ -345,7 +345,7 @@ const PRESET_QUOTE_FILTERS: QuoteFilter[] = [
   { source: "官方 API", category: DEFAULT_QUOTE_CATEGORY },
   { source: "Tomke API", category: DEFAULT_QUOTE_CATEGORY, apiUrl: TOMKE_QUOTES_API }
 ];
-const DEFAULT_QUOTE_FILTER: QuoteFilter = PRESET_QUOTE_FILTERS[0];
+const DEFAULT_QUOTE_FILTER: QuoteFilter = PRESET_QUOTE_FILTERS[1];
 // Tokens returned by custom quote APIs (e.g. Tomke) to avoid duplicates.
 const quoteApiTokens = new Map<string, string>();
 // Cached Tomke categories fetched from /api/categories.
@@ -3038,7 +3038,7 @@ function formatQuoteSource(quote: Quote): string {
   const fromWho = String(quote?.fromWho || "").trim();
   const author =
     fromWho && !isSameQuoteSource(fromWho, from) ? ` ${fromWho}` : "";
-  return `——《${from}》${author}`;
+  return `— ${from}${author}`;
 }
 
 function normalizeCountdownLabel(value: unknown): string {
