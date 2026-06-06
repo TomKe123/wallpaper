@@ -1,8 +1,12 @@
 node_modules/
 dist/
+dist-local/
 *.tsbuildinfo
 .wrangler/
 .env
 .env.*
 !.env.example
 .codegraph/
+.claude/
+openspec/
+wallpaper.exe
