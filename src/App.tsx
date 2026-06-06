@@ -24,6 +24,7 @@ import {
   Download,
   Grip,
   Image as ImageIcon,
+  Link,
   MapPin,
   Plus,
   RefreshCw,
@@ -77,6 +78,7 @@ interface Quote {
 interface QuoteFilter {
   source: string;
   category: string;
+  apiUrl?: string;
 }
 
 interface CountdownState {
@@ -330,11 +332,16 @@ const SETTINGS_TAB_OPTIONS: SettingsTabOption[] = [
   { icon: Download, label: "备份", value: "backup" }
 ];
 const DEFAULT_QUOTE_CATEGORY = "c";
+const TOMKE_API_BASE = "https://hitokoto.tomsite.us.kg";
+const TOMKE_QUOTES_API = `${TOMKE_API_BASE}/api/quotes/random`;
 const DEFAULT_QUOTE_FILTERS: QuoteFilter[] = [
   { source: "原神", category: DEFAULT_QUOTE_CATEGORY },
   { source: "崩坏：星穹铁道", category: DEFAULT_QUOTE_CATEGORY },
-  { source: "崩坏3", category: DEFAULT_QUOTE_CATEGORY }
+  { source: "崩坏3", category: DEFAULT_QUOTE_CATEGORY },
+  { source: "一言 · 开放版", category: "a", apiUrl: TOMKE_QUOTES_API }
 ];
+// Tokens returned by custom quote APIs (e.g. Tomke) to avoid duplicates.
+const quoteApiTokens = new Map<string, string>();
 const DEFAULT_SETTINGS: AppSettings = {
   countdown: createInactiveCountdown(),
   countdownSchedules: [],
@@ -749,10 +756,11 @@ function App() {
     }
   }, []);
 
-  const handleAddQuoteFilter = useCallback((source: string, category: string) => {
+  const handleAddQuoteFilter = useCallback((source: string, category: string, apiUrl?: string) => {
     const normalized = cleanQuoteSource(source);
     if (!normalized) return;
     const normalizedCategory = normalizeQuoteCategory(category) || DEFAULT_QUOTE_CATEGORY;
+    const normalizedUrl = apiUrl?.trim() || undefined;
 
     setSettings((previous) => {
       const existing = normalizeQuoteFilters(previous);
@@ -763,7 +771,7 @@ function App() {
         ...previous,
         quoteFilters: [
           ...existing,
-          { source: normalized, category: normalizedCategory }
+          { source: normalized, category: normalizedCategory, ...(normalizedUrl ? { apiUrl: normalizedUrl } : {}) }
         ]
       };
     });
@@ -787,6 +795,17 @@ function App() {
               ...item,
               category: normalizeQuoteCategory(category) || DEFAULT_QUOTE_CATEGORY
             }
+          : item
+      )
+    }));
+  }, []);
+
+  const handleQuoteFilterUrlChange = useCallback((source: string, apiUrl: string) => {
+    setSettings((previous) => ({
+      ...previous,
+      quoteFilters: normalizeQuoteFilters(previous).map((item) =>
+        isSameQuoteSource(item.source, source)
+          ? { ...item, apiUrl: apiUrl.trim() || undefined }
           : item
       )
     }));
@@ -1034,6 +1053,7 @@ function App() {
         onAddQuoteFilter={handleAddQuoteFilter}
         onRemoveQuoteFilter={handleRemoveQuoteFilter}
         onQuoteFilterCategoryChange={handleQuoteFilterCategoryChange}
+        onQuoteFilterUrlChange={handleQuoteFilterUrlChange}
         onOpenCountdownDialog={() => setIsCountdownDialogOpen(true)}
         onStopCountdown={handleStopCountdown}
         onAddCountdownSchedule={handleAddCountdownSchedule}
@@ -1073,7 +1093,7 @@ function App() {
 interface SettingsDialogProps {
   location: WeatherLocation;
   onAddCountdownSchedule: (schedule: CountdownSchedule) => void;
-  onAddQuoteFilter: (source: string, category: string) => void;
+  onAddQuoteFilter: (source: string, category: string, apiUrl?: string) => void;
   onCustomWallpaperChange: (dataUrl: string) => void;
   onExamModeChange: (examMode: boolean) => void;
   onImportSettings: (settings: AppSettings) => void;
@@ -1083,6 +1103,7 @@ interface SettingsDialogProps {
   onOpenCountdownDialog: () => void;
   onPageScaleChange: (pageScale: number | string) => void;
   onQuoteFilterCategoryChange: (source: string, category: string) => void;
+  onQuoteFilterUrlChange: (source: string, apiUrl: string) => void;
   onQuoteRefreshMinutesChange: (minutes: number | string) => void;
   onRefreshBackground: () => void;
   onRefreshQuote: () => void;
@@ -1110,6 +1131,7 @@ function SettingsDialog({
   onOpenCountdownDialog,
   onPageScaleChange,
   onQuoteFilterCategoryChange,
+  onQuoteFilterUrlChange,
   onQuoteRefreshMinutesChange,
   onRefreshBackground,
   onRefreshQuote,
@@ -1132,6 +1154,7 @@ function SettingsDialog({
   const quoteFilters = normalizeQuoteFilters(settings);
   const [sourceInput, setSourceInput] = useState("");
   const [sourceCategory, setSourceCategory] = useState(DEFAULT_QUOTE_CATEGORY);
+  const [sourceUrlInput, setSourceUrlInput] = useState("");
   const [locationSearchError, setLocationSearchError] = useState("");
   const [isLocationResolving, setIsLocationResolving] = useState(false);
   const [pageScaleInput, setPageScaleInput] = useState(String(pageScalePercent));
@@ -1157,6 +1180,7 @@ function SettingsDialog({
     if (!open) {
       setSourceInput("");
       setSourceCategory(DEFAULT_QUOTE_CATEGORY);
+      setSourceUrlInput("");
       setLocationSearchError("");
       setIsLocationResolving(false);
       setScheduleDuration(DEFAULT_COUNTDOWN_DURATION_INPUT);
@@ -1247,8 +1271,9 @@ function SettingsDialog({
 
   const handleSourceSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    onAddQuoteFilter(sourceInput, sourceCategory);
+    onAddQuoteFilter(sourceInput, sourceCategory, sourceUrlInput);
     setSourceInput("");
+    setSourceUrlInput("");
   };
 
   const handleScheduleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -1819,6 +1844,12 @@ function SettingsDialog({
                         value={sourceCategory}
                         onChange={setSourceCategory}
                       />
+                      <input
+                        className="settings-text-input source-url-input"
+                        value={sourceUrlInput}
+                        onChange={(event) => setSourceUrlInput(event.target.value)}
+                        placeholder="API URL（可选，留空则用默认）"
+                      />
                       <MotionButton ariaLabel="添加来源">
                         <Plus aria-hidden="true" />
                       </MotionButton>
@@ -1845,6 +1876,36 @@ function SettingsDialog({
                                 )
                               }
                             />
+                            {filter.apiUrl ? (
+                              <span className="source-chip-url" title={filter.apiUrl}>
+                                <Link aria-hidden="true" />
+                                <span className="source-chip-url-text">{filter.apiUrl}</span>
+                                <button
+                                  type="button"
+                                  className="source-chip-url-clear"
+                                  onClick={() => onQuoteFilterUrlChange(filter.source, "")}
+                                  title="清除自定义 API"
+                                  aria-label={`清除 ${filter.source} 的自定义 API`}
+                                >
+                                  &times;
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="source-chip-url-add"
+                                onClick={() => {
+                                  const url = prompt(`为「${filter.source}」输入自定义 API URL：`);
+                                  if (url !== null && url.trim() !== "") {
+                                    onQuoteFilterUrlChange(filter.source, url);
+                                  }
+                                }}
+                                title="设置自定义 API URL"
+                                aria-label={`为 ${filter.source} 设置自定义 API URL`}
+                              >
+                                <Link aria-hidden="true" />
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => onRemoveQuoteFilter(filter.source)}
@@ -2602,18 +2663,42 @@ async function fetchFilteredQuote(
   previousQuote?: Quote
 ): Promise<Quote> {
   const filter = randomQuoteFilter(settings);
-  const apiUrl = buildQuoteApiUrl(filter?.category);
   const sourceFilter = filter?.source ? [filter.source] : [];
 
   for (let i = 0; i < MAX_QUOTE_FETCH_ATTEMPTS; i += 1) {
+    const apiUrl = buildQuoteApiUrl(filter);
     try {
       const data = await fetchJsonWithTimeout<Record<string, unknown>>(
         apiUrl,
         QUOTE_API_TIMEOUT_MS
       );
-      const text = String(data?.hitokoto || "").trim();
-      const from = String(data?.from || "").trim();
-      const fromWho = String(data?.from_who || "").trim();
+
+      // Store token for deduplication (Tomke API and compatible services).
+      const token = String(data?.token || "").trim();
+      if (token && filter?.apiUrl) {
+        const url = new URL(filter.apiUrl);
+        quoteApiTokens.set(url.origin + url.pathname, token);
+      }
+
+      // Parse response — support two formats:
+      //   Standard: { hitokoto, from, from_who }
+      //   Tomke:    { quote: { content, from, source }, token }
+      let text = "";
+      let from = "";
+      let fromWho = "";
+
+      const quoteRecord = asRecord(data?.quote);
+      if (quoteRecord && typeof quoteRecord.content === "string") {
+        // Tomke format
+        text = String(quoteRecord.content || "").trim();
+        from = String(quoteRecord.from || "").trim();
+        fromWho = String(quoteRecord.source || "").trim();
+      } else {
+        // Standard hitokoto format
+        text = String(data?.hitokoto || "").trim();
+        from = String(data?.from || "").trim();
+        fromWho = String(data?.from_who || "").trim();
+      }
 
       if (
         text &&
@@ -2632,8 +2717,16 @@ async function fetchFilteredQuote(
   throw new Error("no matching quote");
 }
 
-function buildQuoteApiUrl(category?: string): string {
-  const normalizedCategory = normalizeQuoteCategory(category);
+function buildQuoteApiUrl(filter: QuoteFilter | null): string {
+  if (filter?.apiUrl) {
+    const url = new URL(filter.apiUrl);
+    const token = quoteApiTokens.get(url.origin + url.pathname);
+    if (token) {
+      url.searchParams.set("token", token);
+    }
+    return url.toString();
+  }
+  const normalizedCategory = normalizeQuoteCategory(filter?.category);
   if (!normalizedCategory) {
     return QUOTE_API_BASE;
   }
@@ -2954,9 +3047,11 @@ function normalizeQuoteFilters(settingsOrFilters: unknown): QuoteFilter[] {
     const normalized = rawFilters
       .map((item) => {
         const record = asRecord(item);
+        const apiUrl = typeof record.apiUrl === "string" ? record.apiUrl.trim() : undefined;
         return {
         source: cleanQuoteSource(record.source),
-        category: normalizeQuoteCategory(record.category) || DEFAULT_QUOTE_CATEGORY
+        category: normalizeQuoteCategory(record.category) || DEFAULT_QUOTE_CATEGORY,
+        ...(apiUrl ? { apiUrl } : {})
       };
       })
       .filter((item): item is QuoteFilter => Boolean(item.source));

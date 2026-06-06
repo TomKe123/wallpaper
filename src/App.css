@@ -1032,7 +1032,7 @@ button {
 
 .settings-inline-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 100px auto;
+  grid-template-columns: minmax(0, 1fr) 100px minmax(0, 1fr) auto;
   gap: 6px;
 }
 
@@ -1636,6 +1636,79 @@ button {
   flex: 0 0 auto;
 }
 
+.source-chip-url {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 180px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  font-size: 11px;
+  color: #5a5a5a;
+  overflow: hidden;
+}
+
+.source-chip-url svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  opacity: 0.6;
+}
+
+.source-chip-url-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.source-chip-url-clear {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #999;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  touch-action: manipulation;
+}
+
+.source-chip-url-clear:hover {
+  color: #c00;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.source-chip-url-add {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #888;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.source-chip-url-add:hover {
+  color: #202020;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.source-url-input {
+  font-size: 12px;
+}
+
 .settings-empty-text,
 .settings-error {
   color: var(--ink-muted);
@@ -2061,7 +2134,7 @@ button {
   }
 
   .settings-inline-form {
-    grid-template-columns: minmax(0, 1fr) 86px 36px;
+    grid-template-columns: minmax(0, 1fr) 86px minmax(0, 1fr) 36px;
   }
 
   .scale-control {
