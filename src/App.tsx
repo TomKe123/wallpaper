@@ -79,6 +79,7 @@ interface QuoteFilter {
   source: string;
   category: string;
   apiUrl?: string;
+  search?: string;
 }
 
 interface CountdownState {
@@ -140,6 +141,12 @@ interface AppSettings {
 interface HitokotoCategory {
   code: string;
   label: string;
+}
+
+interface TomkeCategory {
+  name: string;
+  display_name?: string;
+  count?: number;
 }
 
 interface AddressOption {
@@ -331,17 +338,33 @@ const SETTINGS_TAB_OPTIONS: SettingsTabOption[] = [
   { icon: MapPin, label: "定位", value: "location" },
   { icon: Download, label: "备份", value: "backup" }
 ];
-const DEFAULT_QUOTE_CATEGORY = "c";
+const DEFAULT_QUOTE_CATEGORY = "";
 const TOMKE_API_BASE = "https://hitokoto.tomsite.us.kg";
 const TOMKE_QUOTES_API = `${TOMKE_API_BASE}/api/quotes/random`;
-const DEFAULT_QUOTE_FILTERS: QuoteFilter[] = [
-  { source: "原神", category: DEFAULT_QUOTE_CATEGORY },
-  { source: "崩坏：星穹铁道", category: DEFAULT_QUOTE_CATEGORY },
-  { source: "崩坏3", category: DEFAULT_QUOTE_CATEGORY },
-  { source: "一言 · 开放版", category: "a", apiUrl: TOMKE_QUOTES_API }
+const PRESET_QUOTE_FILTERS: QuoteFilter[] = [
+  { source: "官方 API", category: DEFAULT_QUOTE_CATEGORY },
+  { source: "Tomke API", category: DEFAULT_QUOTE_CATEGORY, apiUrl: TOMKE_QUOTES_API }
 ];
+const DEFAULT_QUOTE_FILTER: QuoteFilter = PRESET_QUOTE_FILTERS[0];
 // Tokens returned by custom quote APIs (e.g. Tomke) to avoid duplicates.
 const quoteApiTokens = new Map<string, string>();
+// Cached Tomke categories fetched from /api/categories.
+let tomkeCategoriesPromise: Promise<TomkeCategory[]> | null = null;
+let tomkeCategoriesCache: TomkeCategory[] | null = null;
+
+async function fetchTomkeCategories(): Promise<TomkeCategory[]> {
+  if (tomkeCategoriesCache) return tomkeCategoriesCache;
+  if (!tomkeCategoriesPromise) {
+    tomkeCategoriesPromise = fetchJsonWithTimeout<{ categories: TomkeCategory[] }>(
+      `${TOMKE_API_BASE}/api/categories`,
+      5000
+    ).then((data) => {
+      tomkeCategoriesCache = data.categories || [];
+      return tomkeCategoriesCache;
+    });
+  }
+  return tomkeCategoriesPromise;
+}
 const DEFAULT_SETTINGS: AppSettings = {
   countdown: createInactiveCountdown(),
   countdownSchedules: [],
@@ -351,12 +374,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   manualLocation: FALLBACK_LOCATION,
   pageScale: 0.75,
   quoteRefreshMinutes: 5,
-  quoteFilters: DEFAULT_QUOTE_FILTERS,
+  quoteFilters: [DEFAULT_QUOTE_FILTER],
   showQuoteSource: true
 };
 const MAX_QUOTE_FETCH_ATTEMPTS = 8;
 const QUOTE_RETRY_DELAY_MS = 250;
-const QUOTE_API_TIMEOUT_MS = 1800;
+const QUOTE_API_TIMEOUT_MS = 5000;
 const HITOKOTO_CATEGORIES: HitokotoCategory[] = [
   { code: "a", label: "动画" },
   { code: "b", label: "漫画" },
@@ -372,46 +395,19 @@ const HITOKOTO_CATEGORIES: HitokotoCategory[] = [
   { code: "l", label: "抖机灵" }
 ];
 const CHINA_AREA_DATA = areaData as AreaDataMap;
-const HITOKOTO_CATEGORY_OPTIONS = HITOKOTO_CATEGORIES.map((category) => ({
-  label: category.label,
-  value: category.code
-}));
+const HITOKOTO_CATEGORY_OPTIONS = [
+  { label: "不限", value: "" },
+  ...HITOKOTO_CATEGORIES.map((category) => ({
+    label: category.label,
+    value: category.code
+  }))
+];
 const ADDRESS_ROOT_CODE = "86";
 const GENERIC_ADDRESS_LABELS = new Set(["市辖区", "县", "省直辖县级行政区划"]);
 const ADDRESS_OPTIONS = buildAddressOptions();
 
-const LOCAL_QUOTES: Quote[] = [
-  { text: "旅途的意义，就是不断遇见新的风景。", source: "原神" },
-  { text: "当你重新踏上旅途之后，一定要记得旅途本身的意义。", source: "原神" },
-  { text: "风带来了故事的种子，时间使其发芽。", source: "原神" },
-  { text: "在永恒中寻找变化，在变化中寻找永恒。", source: "原神" },
-  { text: "只要不失去你的崇高，整个世界都会为你敞开。", source: "原神" },
-  { text: "不要害怕犯错，那是成长的必经之路。", source: "原神" },
-  { text: "愿此行，终抵群星。", source: "崩坏：星穹铁道" },
-  { text: "宇宙很大，生活更大。", source: "崩坏：星穹铁道" },
-  { text: "开拓者，不必匆忙，一步一步走就好。", source: "崩坏：星穹铁道" },
-  { text: "规则，就是用来打破的。", source: "崩坏：星穹铁道" },
-  { text: "列车前进的方向，就是家的方向。", source: "崩坏：星穹铁道" },
-  { text: "每个人的心里都住着一个英雄。", source: "崩坏：星穹铁道" },
-  { text: "为世界上所有的美好而战。", source: "崩坏3" },
-  { text: "我将坠入黑暗，换你回到光明。", source: "崩坏3" },
-  { text: "活着，就是一场盛大的战斗。", source: "崩坏3" },
-  { text: "痛苦教会我们珍惜，失去教会我们守护。", source: "崩坏3" },
-  { text: "终点并不重要，重要的是沿途的风景与同伴。", source: "原神" },
-  { text: "奇迹从来不是等来的，是拼出来的。", source: "崩坏：星穹铁道" },
-  { text: "未知并不可怕，可怕的是失去探索的勇气。", source: "崩坏：星穹铁道" },
-  { text: "即使身处黑暗，也要心向光明。", source: "崩坏3" },
-  { text: "出发吧，去追寻属于你的星辰。", source: "原神" },
-  { text: "所谓成长，就是不断告别过去的自己。", source: "原神" },
-  { text: "如果停下来，就永远到不了想去的地方。", source: "崩坏：星穹铁道" },
-  { text: "战斗不是为了一时的胜利，而是为了守护珍视之物。", source: "崩坏3" },
-  { text: "时间不会等待，但我们可以选择如何度过。", source: "原神" },
-  { text: "所有的相遇，都是久别重逢。", source: "原神" },
-  { text: "向着星辰与深渊，前进吧。", source: "原神" },
-  { text: "空洞虽险，但机遇并存。", source: "绝区零" },
-  { text: "在这个世界活下去，本身就是一种奇迹。", source: "绝区零" },
-  { text: "每一天都是崭新的冒险。", source: "绝区零" }
-];
+// Local fallback quotes — temporarily disabled.
+const LOCAL_QUOTES: Quote[] = [];
 
 const WEEKDAYS: string[] = [
   "星期日",
@@ -437,7 +433,10 @@ function App() {
     status: "loading"
   });
   const [location, setLocation] = useState<WeatherLocation>(FALLBACK_LOCATION);
-  const [quote, setQuote] = useState(() => randomLocalQuote(DEFAULT_SETTINGS));
+  const [quote, setQuote] = useState<Quote>(() => ({
+    text: "加载中…",
+    source: "每日一言"
+  }));
   const [isQuoteLoading, setIsQuoteLoading] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(() => readStoredSettings());
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -464,7 +463,7 @@ function App() {
       const quoteResult = await fetchFilteredQuote(settings, previousQuote);
       setQuote(quoteResult);
     } catch (_error) {
-      setQuote(randomLocalQuote(settings, previousQuote));
+      // API failed; keep the current quote displayed.
     } finally {
       const elapsed = Date.now() - startedAt;
       const delay = Math.max(0, 320 - elapsed);
@@ -756,57 +755,25 @@ function App() {
     }
   }, []);
 
-  const handleAddQuoteFilter = useCallback((source: string, category: string, apiUrl?: string) => {
-    const normalized = cleanQuoteSource(source);
-    if (!normalized) return;
-    const normalizedCategory = normalizeQuoteCategory(category) || DEFAULT_QUOTE_CATEGORY;
-    const normalizedUrl = apiUrl?.trim() || undefined;
-
-    setSettings((previous) => {
-      const existing = normalizeQuoteFilters(previous);
-      if (existing.some((item) => isSameQuoteSource(item.source, normalized))) {
-        return previous;
-      }
-      return {
-        ...previous,
-        quoteFilters: [
-          ...existing,
-          { source: normalized, category: normalizedCategory, ...(normalizedUrl ? { apiUrl: normalizedUrl } : {}) }
-        ]
-      };
-    });
-  }, []);
-
-  const handleRemoveQuoteFilter = useCallback((source: string) => {
+  const handleAddQuoteFilter = useCallback((filter: QuoteFilter) => {
     setSettings((previous) => ({
       ...previous,
-      quoteFilters: normalizeQuoteFilters(previous).filter(
-        (item) => !isSameQuoteSource(item.source, source)
-      )
+      quoteFilters: [...(previous.quoteFilters || []), filter]
     }));
   }, []);
 
-  const handleQuoteFilterCategoryChange = useCallback((source: string, category: string) => {
+  const handleRemoveQuoteFilter = useCallback((index: number) => {
     setSettings((previous) => ({
       ...previous,
-      quoteFilters: normalizeQuoteFilters(previous).map((item) =>
-        isSameQuoteSource(item.source, source)
-          ? {
-              ...item,
-              category: normalizeQuoteCategory(category) || DEFAULT_QUOTE_CATEGORY
-            }
-          : item
-      )
+      quoteFilters: (previous.quoteFilters || []).filter((_, i) => i !== index)
     }));
   }, []);
 
-  const handleQuoteFilterUrlChange = useCallback((source: string, apiUrl: string) => {
+  const handleUpdateQuoteFilter = useCallback((index: number, patch: Partial<QuoteFilter>) => {
     setSettings((previous) => ({
       ...previous,
-      quoteFilters: normalizeQuoteFilters(previous).map((item) =>
-        isSameQuoteSource(item.source, source)
-          ? { ...item, apiUrl: apiUrl.trim() || undefined }
-          : item
+      quoteFilters: (previous.quoteFilters || []).map((item, i) =>
+        i === index ? { ...item, ...patch } : item
       )
     }));
   }, []);
@@ -1050,10 +1017,9 @@ function App() {
         onCustomWallpaperChange={handleCustomWallpaperChange}
         onExamModeChange={handleExamModeChange}
         onQuoteRefreshMinutesChange={handleQuoteRefreshMinutesChange}
-        onAddQuoteFilter={handleAddQuoteFilter}
-        onRemoveQuoteFilter={handleRemoveQuoteFilter}
-        onQuoteFilterCategoryChange={handleQuoteFilterCategoryChange}
-        onQuoteFilterUrlChange={handleQuoteFilterUrlChange}
+        onQuoteFilterChange={handleAddQuoteFilter}
+        onQuoteFilterRemove={handleRemoveQuoteFilter}
+        onQuoteFilterUpdate={handleUpdateQuoteFilter}
         onOpenCountdownDialog={() => setIsCountdownDialogOpen(true)}
         onStopCountdown={handleStopCountdown}
         onAddCountdownSchedule={handleAddCountdownSchedule}
@@ -1093,7 +1059,6 @@ function App() {
 interface SettingsDialogProps {
   location: WeatherLocation;
   onAddCountdownSchedule: (schedule: CountdownSchedule) => void;
-  onAddQuoteFilter: (source: string, category: string, apiUrl?: string) => void;
   onCustomWallpaperChange: (dataUrl: string) => void;
   onExamModeChange: (examMode: boolean) => void;
   onImportSettings: (settings: AppSettings) => void;
@@ -1102,14 +1067,14 @@ interface SettingsDialogProps {
   onOpenChange: (open: boolean) => void;
   onOpenCountdownDialog: () => void;
   onPageScaleChange: (pageScale: number | string) => void;
-  onQuoteFilterCategoryChange: (source: string, category: string) => void;
-  onQuoteFilterUrlChange: (source: string, apiUrl: string) => void;
+  onQuoteFilterChange: (filter: QuoteFilter) => void;
+  onQuoteFilterRemove: (index: number) => void;
+  onQuoteFilterUpdate: (index: number, patch: Partial<QuoteFilter>) => void;
   onQuoteRefreshMinutesChange: (minutes: number | string) => void;
   onRefreshBackground: () => void;
   onRefreshQuote: () => void;
   onRefreshWeather: () => void;
   onRemoveCountdownSchedule: (id: string) => void;
-  onRemoveQuoteFilter: (source: string) => void;
   onShowQuoteSourceChange: (showQuoteSource: boolean) => void;
   onStopCountdown: () => void;
   onToggleCountdownSchedule: (id: string) => void;
@@ -1121,7 +1086,6 @@ interface SettingsDialogProps {
 function SettingsDialog({
   location,
   onAddCountdownSchedule,
-  onAddQuoteFilter,
   onCustomWallpaperChange,
   onExamModeChange,
   onImportSettings,
@@ -1130,14 +1094,14 @@ function SettingsDialog({
   onOpenChange,
   onOpenCountdownDialog,
   onPageScaleChange,
-  onQuoteFilterCategoryChange,
-  onQuoteFilterUrlChange,
+  onQuoteFilterChange,
+  onQuoteFilterRemove,
+  onQuoteFilterUpdate,
   onQuoteRefreshMinutesChange,
   onRefreshBackground,
   onRefreshQuote,
   onRefreshWeather,
   onRemoveCountdownSchedule,
-  onRemoveQuoteFilter,
   onShowQuoteSourceChange,
   onStopCountdown,
   onToggleCountdownSchedule,
@@ -1152,9 +1116,7 @@ function SettingsDialog({
     settings.quoteRefreshMinutes
   );
   const quoteFilters = normalizeQuoteFilters(settings);
-  const [sourceInput, setSourceInput] = useState("");
-  const [sourceCategory, setSourceCategory] = useState(DEFAULT_QUOTE_CATEGORY);
-  const [sourceUrlInput, setSourceUrlInput] = useState("");
+  const [tomkeCategories, setTomkeCategories] = useState<TomkeCategory[] | null>(null);
   const [locationSearchError, setLocationSearchError] = useState("");
   const [isLocationResolving, setIsLocationResolving] = useState(false);
   const [pageScaleInput, setPageScaleInput] = useState(String(pageScalePercent));
@@ -1178,9 +1140,6 @@ function SettingsDialog({
 
   useEffect(() => {
     if (!open) {
-      setSourceInput("");
-      setSourceCategory(DEFAULT_QUOTE_CATEGORY);
-      setSourceUrlInput("");
       setLocationSearchError("");
       setIsLocationResolving(false);
       setScheduleDuration(DEFAULT_COUNTDOWN_DURATION_INPUT);
@@ -1193,6 +1152,14 @@ function SettingsDialog({
       setSettingsBackupMessage("");
     }
   }, [open]);
+
+  useEffect(() => {
+    if (open && !tomkeCategories && !tomkeCategoriesCache) {
+      fetchTomkeCategories().then(setTomkeCategories);
+    } else if (tomkeCategoriesCache) {
+      setTomkeCategories(tomkeCategoriesCache);
+    }
+  }, [open, tomkeCategories]);
 
   useEffect(() => {
     setPageScaleInput(String(pageScalePercent));
@@ -1267,13 +1234,6 @@ function SettingsDialog({
     const nextScale = normalizePageScale(pageScale + delta);
     onPageScaleChange(nextScale);
     setPageScaleInput(String(Math.round(nextScale * 100)));
-  };
-
-  const handleSourceSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    onAddQuoteFilter(sourceInput, sourceCategory, sourceUrlInput);
-    setSourceInput("");
-    setSourceUrlInput("");
   };
 
   const handleScheduleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -1822,103 +1782,66 @@ function SettingsDialog({
                     <div className="settings-block-head">
                       <span className="settings-label">
                         <Cloud aria-hidden="true" />
-                        一言检索
+                        一言来源
                       </span>
                       <span className="settings-description">
-                        每个来源词条都有自己的分类，刷新时会随机抽取一个词条
+                        选择数据来源，可选填分类和搜索关键词
                       </span>
                     </div>
 
-                    <form className="settings-inline-form" onSubmit={handleSourceSubmit}>
-                      <input
-                        className="settings-text-input"
-                        value={sourceInput}
-                        onChange={(event) => setSourceInput(event.target.value)}
-                        placeholder="例如：原神、崩坏：星穹铁道"
-                      />
-                      <Select
-                        aria-label="新来源分类"
-                        className="settings-select"
-                        options={HITOKOTO_CATEGORY_OPTIONS}
-                        popupClassName="quote-category-select-popup"
-                        value={sourceCategory}
-                        onChange={setSourceCategory}
-                      />
-                      <input
-                        className="settings-text-input source-url-input"
-                        value={sourceUrlInput}
-                        onChange={(event) => setSourceUrlInput(event.target.value)}
-                        placeholder="API URL（可选，留空则用默认）"
-                      />
-                      <MotionButton ariaLabel="添加来源">
-                        <Plus aria-hidden="true" />
-                      </MotionButton>
-                    </form>
-
-                    <div className="source-chip-list" aria-label="来源筛选列表">
-                      {quoteFilters.length ? (
-                        quoteFilters.map((filter) => (
-                          <div
-                            className="source-chip"
-                            key={filter.source}
-                          >
-                            <span>{filter.source}</span>
+                    <div className="filter-list">
+                      {quoteFilters.length ? quoteFilters.map((filter, index) => {
+                        const isTomke = filter.apiUrl === TOMKE_QUOTES_API;
+                        const catOptions = isTomke
+                          ? [{ label: "不限", value: "" }].concat(
+                              (tomkeCategories ?? []).length
+                                ? tomkeCategories!.map((c) => ({ label: c.display_name || c.name, value: c.name }))
+                                : []
+                            )
+                          : HITOKOTO_CATEGORY_OPTIONS;
+                        return (
+                          <div className="filter-rule" key={index}>
+                            <span className="filter-rule-source">{filter.source}</span>
                             <Select
-                              aria-label={`${filter.source} 分类`}
-                              className="source-chip-select"
-                              options={HITOKOTO_CATEGORY_OPTIONS}
+                              aria-label="分类"
+                              className="settings-select filter-rule-select"
+                              options={catOptions}
                               popupClassName="quote-category-select-popup"
                               value={filter.category}
-                              onChange={(category) =>
-                                onQuoteFilterCategoryChange(
-                                  filter.source,
-                                  category
-                                )
-                              }
+                              onChange={(cat) => onQuoteFilterUpdate(index, { category: cat })}
                             />
-                            {filter.apiUrl ? (
-                              <span className="source-chip-url" title={filter.apiUrl}>
-                                <Link aria-hidden="true" />
-                                <span className="source-chip-url-text">{filter.apiUrl}</span>
-                                <button
-                                  type="button"
-                                  className="source-chip-url-clear"
-                                  onClick={() => onQuoteFilterUrlChange(filter.source, "")}
-                                  title="清除自定义 API"
-                                  aria-label={`清除 ${filter.source} 的自定义 API`}
-                                >
-                                  &times;
-                                </button>
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                className="source-chip-url-add"
-                                onClick={() => {
-                                  const url = prompt(`为「${filter.source}」输入自定义 API URL：`);
-                                  if (url !== null && url.trim() !== "") {
-                                    onQuoteFilterUrlChange(filter.source, url);
-                                  }
-                                }}
-                                title="设置自定义 API URL"
-                                aria-label={`为 ${filter.source} 设置自定义 API URL`}
-                              >
-                                <Link aria-hidden="true" />
-                              </button>
-                            )}
+                            <input
+                              className="settings-text-input filter-rule-search"
+                              value={filter.search || ""}
+                              onChange={(e) => onQuoteFilterUpdate(index, { search: e.target.value.trim() || undefined })}
+                              placeholder="搜索"
+                            />
                             <button
                               type="button"
-                              onClick={() => onRemoveQuoteFilter(filter.source)}
-                              title="移除此来源"
+                              className="filter-rule-del"
+                              onClick={() => onQuoteFilterRemove(index)}
+                              title="移除此规则"
                               aria-label={`移除 ${filter.source}`}
                             >
                               <Trash2 aria-hidden="true" />
                             </button>
                           </div>
-                        ))
-                      ) : (
-                        <span className="settings-empty-text">当前没有来源词条</span>
+                        );
+                      }) : (
+                        <span className="settings-empty-text">还没有筛选规则</span>
                       )}
+                    </div>
+
+                    <div className="source-preset-row">
+                      {PRESET_QUOTE_FILTERS.map((preset) => (
+                        <button
+                          key={preset.source}
+                          type="button"
+                          onClick={() => onQuoteFilterChange({ source: preset.source, category: "", apiUrl: preset.apiUrl || undefined })}
+                        >
+                          + {preset.source}
+                        </button>
+                      ))}
                     </div>
                   </section>
                   </>
@@ -2663,8 +2586,33 @@ async function fetchFilteredQuote(
   previousQuote?: Quote
 ): Promise<Quote> {
   const filter = randomQuoteFilter(settings);
-  const sourceFilter = filter?.source ? [filter.source] : [];
+  const isCustomApi = Boolean(filter?.apiUrl);
 
+  if (isCustomApi) {
+    // Custom API (Tomke): fetch once, no retry.
+    const apiUrl = buildQuoteApiUrl(filter);
+    const data = await fetchJsonWithTimeout<Record<string, unknown>>(
+      apiUrl,
+      QUOTE_API_TIMEOUT_MS
+    );
+    const token = String(data?.token || "").trim();
+    if (token && filter?.apiUrl) {
+      const url = new URL(filter.apiUrl);
+      quoteApiTokens.set(url.origin + url.pathname, token);
+    }
+    const quoteRecord = asRecord(data?.quote);
+    if (quoteRecord && typeof quoteRecord.content === "string") {
+      const text = String(quoteRecord.content || "").trim();
+      const from = String(quoteRecord.from || "").trim();
+      const fromWho = String(quoteRecord.source || "").trim();
+      if (text && !isSameQuoteText(text, previousQuote)) {
+        return { from, fromWho, text, source: from || fromWho };
+      }
+    }
+    throw new Error("no matching quote");
+  }
+
+  // Standard hitokoto API: retry up to MAX_QUOTE_FETCH_ATTEMPTS times.
   for (let i = 0; i < MAX_QUOTE_FETCH_ATTEMPTS; i += 1) {
     const apiUrl = buildQuoteApiUrl(filter);
     try {
@@ -2672,45 +2620,15 @@ async function fetchFilteredQuote(
         apiUrl,
         QUOTE_API_TIMEOUT_MS
       );
-
-      // Store token for deduplication (Tomke API and compatible services).
-      const token = String(data?.token || "").trim();
-      if (token && filter?.apiUrl) {
-        const url = new URL(filter.apiUrl);
-        quoteApiTokens.set(url.origin + url.pathname, token);
-      }
-
-      // Parse response — support two formats:
-      //   Standard: { hitokoto, from, from_who }
-      //   Tomke:    { quote: { content, from, source }, token }
-      let text = "";
-      let from = "";
-      let fromWho = "";
-
-      const quoteRecord = asRecord(data?.quote);
-      if (quoteRecord && typeof quoteRecord.content === "string") {
-        // Tomke format
-        text = String(quoteRecord.content || "").trim();
-        from = String(quoteRecord.from || "").trim();
-        fromWho = String(quoteRecord.source || "").trim();
-      } else {
-        // Standard hitokoto format
-        text = String(data?.hitokoto || "").trim();
-        from = String(data?.from || "").trim();
-        fromWho = String(data?.from_who || "").trim();
-      }
-
-      if (
-        text &&
-        !isSameQuoteText(text, previousQuote) &&
-        quoteMatchesSources(from, sourceFilter)
-      ) {
+      const text = String(data?.hitokoto || "").trim();
+      const from = String(data?.from || "").trim();
+      const fromWho = String(data?.from_who || "").trim();
+      if (text && !isSameQuoteText(text, previousQuote)) {
         return { from, fromWho, text, source: from || fromWho };
       }
     } catch (_error) {
-      // Retry below, matching the original single-file HTML behavior.
+      // Retry below
     }
-
     await delay(QUOTE_RETRY_DELAY_MS);
   }
 
@@ -2718,20 +2636,36 @@ async function fetchFilteredQuote(
 }
 
 function buildQuoteApiUrl(filter: QuoteFilter | null): string {
-  if (filter?.apiUrl) {
-    const url = new URL(filter.apiUrl);
-    const token = quoteApiTokens.get(url.origin + url.pathname);
-    if (token) {
-      url.searchParams.set("token", token);
+  const baseUrl = filter?.apiUrl || QUOTE_API_BASE;
+  const url = new URL(baseUrl);
+
+  // Append token for deduplication (Tomke-compatible APIs)
+  const token = filter?.apiUrl ? quoteApiTokens.get(url.origin + url.pathname) : undefined;
+  if (token) {
+    url.searchParams.set("token", token);
+  }
+
+  // Append category
+  if (filter?.apiUrl && filter.category) {
+    // Custom API (Tomke): use ?category=xxx
+    url.searchParams.set("category", filter.category);
+  } else if (!filter?.apiUrl) {
+    // Standard hitokoto API: use ?c=x
+    const normalizedCategory = normalizeQuoteCategory(filter?.category);
+    if (normalizedCategory) {
+      url.searchParams.set("c", normalizedCategory);
     }
-    return url.toString();
   }
-  const normalizedCategory = normalizeQuoteCategory(filter?.category);
-  if (!normalizedCategory) {
-    return QUOTE_API_BASE;
+
+  // Append search keywords (split by spaces → multiple &search= params for Tomke API)
+  if (filter?.search) {
+    const keywords = filter.search.split(/\s+/).filter(Boolean);
+    for (const kw of keywords) {
+      url.searchParams.append("search", kw);
+    }
   }
-  const params = new URLSearchParams({ c: normalizedCategory });
-  return `${QUOTE_API_BASE}?${params}`;
+
+  return url.toString();
 }
 
 function delay(ms: number): Promise<void> {
@@ -2987,27 +2921,63 @@ function buildXiaomiWeatherApiUrl(location: WeatherLocation): string {
   return `${XIAOMI_WEATHER_API}?${params}`;
 }
 
-function randomLocalQuote(settings: AppSettings, previousQuote?: Quote): Quote {
-  const filter = randomQuoteFilter(settings);
-  const sourceFilter = filter?.source ? [filter.source] : [];
-  const candidates = sourceFilter.length
-    ? LOCAL_QUOTES.filter((quote) => quoteMatchesSources(quote.source, sourceFilter))
-    : LOCAL_QUOTES;
-  const pool = candidates.length ? candidates : LOCAL_QUOTES;
-  const nonRepeatingPool = pool.filter(
-    (quote) => !isSameQuoteText(quote.text, previousQuote)
-  );
-  const finalPool = nonRepeatingPool.length ? nonRepeatingPool : pool;
-  const quote = finalPool[Math.floor(Math.random() * finalPool.length)];
-  return { text: quote.text, source: quote.source };
+function randomLocalQuote(_settings: AppSettings, _previousQuote?: Quote): Quote {
+  // Local quotes are temporarily disabled.
+  throw new Error("local quotes unavailable");
 }
 
 function randomQuoteFilter(settings: AppSettings): QuoteFilter | null {
   const filters = normalizeQuoteFilters(settings);
-  if (!filters.length) {
-    return null;
-  }
+  if (!filters.length) return null;
   return filters[Math.floor(Math.random() * filters.length)];
+}
+
+function normalizeQuoteFilters(settings: AppSettings): QuoteFilter[] {
+  // New array format
+  if (Array.isArray(settings.quoteFilters) && settings.quoteFilters.length > 0) {
+    return settings.quoteFilters
+      .map((raw) => {
+        const source = cleanQuoteSource(raw.source);
+        const apiUrl = typeof raw.apiUrl === "string" ? raw.apiUrl.trim() : undefined;
+        const search = typeof raw.search === "string" ? raw.search.trim() : undefined;
+        let category = String(raw.category || "").trim();
+        if (!apiUrl) {
+          category = normalizeQuoteCategory(category) || DEFAULT_QUOTE_CATEGORY;
+        }
+        if (!source) return null;
+        return { source, category, ...(apiUrl ? { apiUrl } : {}), ...(search ? { search } : {}) };
+      })
+      .filter((f): f is QuoteFilter => f !== null);
+  }
+  // Migrate from old single format
+  const single = (settings as unknown as Record<string, unknown>).quoteFilter;
+  if (single && typeof single === "object") {
+    const record = single as Record<string, unknown>;
+    const source = cleanQuoteSource(record.source);
+    const apiUrl = typeof record.apiUrl === "string" ? (record.apiUrl as string).trim() : undefined;
+    const search = typeof record.search === "string" ? (record.search as string).trim() : undefined;
+    let category = String(record.category || "").trim();
+    if (!apiUrl) {
+      category = normalizeQuoteCategory(category) || DEFAULT_QUOTE_CATEGORY;
+    }
+    if (apiUrl === TOMKE_QUOTES_API && category === "anime") {
+      category = "";
+    }
+    if (source) return [{ source, category, ...(apiUrl ? { apiUrl } : {}), ...(search ? { search } : {}) }];
+  }
+  // Migrate from old array format (legacy)
+  const oldFilters = (settings as unknown as Record<string, unknown>).quoteFilters;
+  if (Array.isArray(oldFilters) && oldFilters.length > 0) {
+    const first = oldFilters[0] as Record<string, unknown>;
+    const source = cleanQuoteSource(first.source);
+    const apiUrl = typeof first.apiUrl === "string" ? (first.apiUrl as string).trim() : undefined;
+    let category = String(first.category || "").trim();
+    if (!apiUrl) {
+      category = normalizeQuoteCategory(category) || DEFAULT_QUOTE_CATEGORY;
+    }
+    if (source) return [{ source, category, ...(apiUrl ? { apiUrl } : {}) }];
+  }
+  return [DEFAULT_QUOTE_FILTER];
 }
 
 function isSameQuoteText(text: string, previousQuote?: Quote): boolean {
@@ -3036,74 +3006,6 @@ function cleanQuoteSource(value: unknown): string {
 
 function isSameQuoteSource(a: unknown, b: unknown): boolean {
   return normalizeQuoteSourceForMatch(a) === normalizeQuoteSourceForMatch(b);
-}
-
-function normalizeQuoteFilters(settingsOrFilters: unknown): QuoteFilter[] {
-  const rawFilters = Array.isArray(settingsOrFilters)
-    ? settingsOrFilters
-    : asRecord(settingsOrFilters).quoteFilters;
-
-  if (Array.isArray(rawFilters)) {
-    const normalized = rawFilters
-      .map((item) => {
-        const record = asRecord(item);
-        const apiUrl = typeof record.apiUrl === "string" ? record.apiUrl.trim() : undefined;
-        return {
-        source: cleanQuoteSource(record.source),
-        category: normalizeQuoteCategory(record.category) || DEFAULT_QUOTE_CATEGORY,
-        ...(apiUrl ? { apiUrl } : {})
-      };
-      })
-      .filter((item): item is QuoteFilter => Boolean(item.source));
-
-    return dedupeQuoteFilters(normalized);
-  }
-
-  return migrateQuoteFilters(asRecord(settingsOrFilters));
-}
-
-function migrateQuoteFilters(settings: Record<string, unknown>): QuoteFilter[] {
-  const sources = normalizeQuoteSources(settings.quoteSources);
-  const categories = normalizeQuoteCategories(settings.quoteCategories);
-  const fallbackCategory = categories[0] || DEFAULT_QUOTE_CATEGORY;
-
-  return sources.map((source, index) => ({
-    source,
-    category: categories[index] || fallbackCategory
-  }));
-}
-
-function dedupeQuoteFilters(filters: QuoteFilter[]): QuoteFilter[] {
-  const seen = new Set<string>();
-  const result: QuoteFilter[] = [];
-
-  filters.forEach((filter) => {
-    const key = normalizeQuoteSourceForMatch(filter.source);
-    if (!key || seen.has(key)) {
-      return;
-    }
-    seen.add(key);
-    result.push(filter);
-  });
-
-  return result;
-}
-
-function quoteMatchesSources(from: unknown, filters: unknown): boolean {
-  const normalizedFilters = normalizeQuoteSources(filters);
-  if (!normalizedFilters.length) {
-    return true;
-  }
-
-  const source = normalizeQuoteSourceForMatch(from);
-  if (!source) {
-    return false;
-  }
-
-  return normalizedFilters.some((filter) => {
-    const needle = normalizeQuoteSourceForMatch(filter);
-    return source.includes(needle) || needle.includes(source);
-  });
 }
 
 function normalizeQuoteSourceForMatch(value: unknown): string {
@@ -3721,6 +3623,46 @@ function formatDateTime(value: number): string {
   ).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
+function migrateQuoteFilters(parsed: Record<string, unknown>): QuoteFilter[] {
+  // New array format
+  const rawFilters = parsed.quoteFilters;
+  if (Array.isArray(rawFilters) && rawFilters.length > 0) {
+    return rawFilters
+      .map((item: unknown) => {
+        const record = asRecord(item);
+        const source = cleanQuoteSource(record.source);
+        const apiUrl = typeof record.apiUrl === "string" ? (record.apiUrl as string).trim() : undefined;
+        let category = String(record.category || "").trim();
+        if (!apiUrl) {
+          category = normalizeQuoteCategory(category) || DEFAULT_QUOTE_CATEGORY;
+        }
+        if (apiUrl === TOMKE_QUOTES_API && category === "anime") {
+          category = "";
+        }
+        const search = typeof record.search === "string" ? (record.search as string).trim() : undefined;
+        if (!source) return null;
+        return { source, category, ...(apiUrl ? { apiUrl } : {}), ...(search ? { search } : {}) };
+      })
+      .filter((f): f is QuoteFilter => f !== null);
+  }
+  // Migrate from old single-filter format
+  const single = asRecord(parsed.quoteFilter);
+  if (single && single.source) {
+    const source = cleanQuoteSource(single.source);
+    const apiUrl = typeof single.apiUrl === "string" ? (single.apiUrl as string).trim() : undefined;
+    let category = String(single.category || "").trim();
+    if (!apiUrl) {
+      category = normalizeQuoteCategory(category) || DEFAULT_QUOTE_CATEGORY;
+    }
+    if (apiUrl === TOMKE_QUOTES_API && category === "anime") {
+      category = "";
+    }
+    const search = typeof single.search === "string" ? (single.search as string).trim() : undefined;
+    if (source) return [{ source, category, ...(apiUrl ? { apiUrl } : {}), ...(search ? { search } : {}) }];
+  }
+  return [DEFAULT_QUOTE_FILTER];
+}
+
 function normalizeSettings(value: unknown): AppSettings {
   const parsed = asRecord(value);
   const migratedMode =
@@ -3737,9 +3679,7 @@ function normalizeSettings(value: unknown): AppSettings {
       normalizeLocation(parsed.manualLocation) || DEFAULT_SETTINGS.manualLocation,
     pageScale: normalizePageScale(parsed.pageScale),
     quoteRefreshMinutes: normalizeQuoteRefreshMinutes(parsed.quoteRefreshMinutes),
-    quoteFilters: normalizeQuoteFilters(parsed).length
-      ? normalizeQuoteFilters(parsed)
-      : DEFAULT_SETTINGS.quoteFilters,
+    quoteFilters: migrateQuoteFilters(parsed),
     showQuoteSource: parsed.showQuoteSource !== false,
     countdown: normalizeCountdown(parsed.countdown),
     countdownSchedules: normalizeCountdownSchedules(
