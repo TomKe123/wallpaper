@@ -2585,51 +2585,85 @@ async function fetchFilteredQuote(
   settings: AppSettings,
   previousQuote?: Quote
 ): Promise<Quote> {
-  const filter = randomQuoteFilter(settings);
-  const isCustomApi = Boolean(filter?.apiUrl);
+  const allFilters = normalizeQuoteFilters(settings);
+  if (!allFilters.length) throw new Error("no matching quote");
 
-  if (isCustomApi) {
-    // Custom API (Tomke): fetch once, no retry.
-    const apiUrl = buildQuoteApiUrl(filter);
-    const data = await fetchJsonWithTimeout<Record<string, unknown>>(
-      apiUrl,
-      QUOTE_API_TIMEOUT_MS
-    );
-    const token = String(data?.token || "").trim();
-    if (token && filter?.apiUrl) {
-      const url = new URL(filter.apiUrl);
-      quoteApiTokens.set(url.origin + url.pathname, token);
-    }
-    const quoteRecord = asRecord(data?.quote);
-    if (quoteRecord && typeof quoteRecord.content === "string") {
-      const text = String(quoteRecord.content || "").trim();
-      const from = String(quoteRecord.from || "").trim();
-      const fromWho = String(quoteRecord.source || "").trim();
-      if (text && !isSameQuoteText(text, previousQuote)) {
-        return { from, fromWho, text, source: from || fromWho };
-      }
-    }
-    throw new Error("no matching quote");
-  }
-
-  // Standard hitokoto API: retry up to MAX_QUOTE_FETCH_ATTEMPTS times.
-  for (let i = 0; i < MAX_QUOTE_FETCH_ATTEMPTS; i += 1) {
-    const apiUrl = buildQuoteApiUrl(filter);
-    try {
+  const tryFilter = async (filter: QuoteFilter): Promise<Quote> => {
+    if (filter.apiUrl) {
+      // Custom API (Tomke): fetch once.
+      const apiUrl = buildQuoteApiUrl(filter);
       const data = await fetchJsonWithTimeout<Record<string, unknown>>(
         apiUrl,
         QUOTE_API_TIMEOUT_MS
       );
-      const text = String(data?.hitokoto || "").trim();
-      const from = String(data?.from || "").trim();
-      const fromWho = String(data?.from_who || "").trim();
-      if (text && !isSameQuoteText(text, previousQuote)) {
-        return { from, fromWho, text, source: from || fromWho };
+      const token = String(data?.token || "").trim();
+      if (token) {
+        const url = new URL(filter.apiUrl);
+        quoteApiTokens.set(url.origin + url.pathname, token);
       }
-    } catch (_error) {
-      // Retry below
+      const quoteRecord = asRecord(data?.quote);
+      if (quoteRecord && typeof quoteRecord.content === "string") {
+        const text = String(quoteRecord.content || "").trim();
+        const from = String(quoteRecord.from || "").trim();
+        const fromWho = String(quoteRecord.source || "").trim();
+        if (text && !isSameQuoteText(text, previousQuote)) {
+          return { from, fromWho, text, source: from || fromWho };
+        }
+      }
+      throw new Error("no matching quote");
     }
-    await delay(QUOTE_RETRY_DELAY_MS);
+
+    // Standard hitokoto API: retry up to MAX_QUOTE_FETCH_ATTEMPTS times.
+    for (let i = 0; i < MAX_QUOTE_FETCH_ATTEMPTS; i += 1) {
+      const apiUrl = buildQuoteApiUrl(filter);
+      try {
+        const data = await fetchJsonWithTimeout<Record<string, unknown>>(
+          apiUrl,
+          QUOTE_API_TIMEOUT_MS
+        );
+        const text = String(data?.hitokoto || "").trim();
+        const from = String(data?.from || "").trim();
+        const fromWho = String(data?.from_who || "").trim();
+        if (text && !isSameQuoteText(text, previousQuote)) {
+          return { from, fromWho, text, source: from || fromWho };
+        }
+      } catch {
+        // Retry below
+      }
+      await delay(QUOTE_RETRY_DELAY_MS);
+    }
+
+    throw new Error("no matching quote");
+  };
+
+  // Try filters starting from a random index, cycling through the whole list
+  const startIndex = Math.floor(Math.random() * allFilters.length);
+
+  for (let offset = 0; offset < allFilters.length; offset++) {
+    const filter = allFilters[(startIndex + offset) % allFilters.length];
+    try {
+      return await tryFilter(filter);
+    } catch {
+      // 404 or no match → try next filter
+    }
+  }
+
+  // All filters exhausted: clear token cache for custom APIs and retry all
+  for (const filter of allFilters) {
+    if (filter.apiUrl) {
+      const url = new URL(filter.apiUrl);
+      quoteApiTokens.delete(url.origin + url.pathname);
+    }
+  }
+
+  // Retry all filters without stored tokens (server returns fresh token + quote)
+  for (let offset = 0; offset < allFilters.length; offset++) {
+    const filter = allFilters[(startIndex + offset) % allFilters.length];
+    try {
+      return await tryFilter(filter);
+    } catch {
+      // Token-cleared attempt also failed → try next filter
+    }
   }
 
   throw new Error("no matching quote");
@@ -2924,12 +2958,6 @@ function buildXiaomiWeatherApiUrl(location: WeatherLocation): string {
 function randomLocalQuote(_settings: AppSettings, _previousQuote?: Quote): Quote {
   // Local quotes are temporarily disabled.
   throw new Error("local quotes unavailable");
-}
-
-function randomQuoteFilter(settings: AppSettings): QuoteFilter | null {
-  const filters = normalizeQuoteFilters(settings);
-  if (!filters.length) return null;
-  return filters[Math.floor(Math.random() * filters.length)];
 }
 
 function normalizeQuoteFilters(settings: AppSettings): QuoteFilter[] {
