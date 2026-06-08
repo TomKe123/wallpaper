@@ -982,7 +982,7 @@ function App() {
                 exit={shouldReduceMotion ? undefined : { opacity: 0, y: -8 }}
                 transition={{ duration: 0.22 }}
               >
-                <p className="quote-text">“{quote.text}”</p>
+                <p className="quote-text">「{quote.text}」</p>
                 {settings.showQuoteSource && (
                   <div className="quote-source">{formatQuoteSource(quote)}</div>
                 )}
