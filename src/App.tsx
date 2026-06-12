@@ -80,6 +80,7 @@ interface QuoteFilter {
   category: string;
   apiUrl?: string;
   search?: string;
+  enabled?: boolean;
 }
 
 interface CountdownState {
@@ -1115,12 +1116,14 @@ function SettingsDialog({
   const quoteRefreshMinutes = normalizeQuoteRefreshMinutes(
     settings.quoteRefreshMinutes
   );
-  const quoteFilters = normalizeQuoteFilters(settings);
+  // Use raw array so index/length match update/remove handlers; disabled filters are shown for toggleability
+  const quoteFilters = settings.quoteFilters || [];
   const [tomkeCategories, setTomkeCategories] = useState<TomkeCategory[] | null>(null);
   const [locationSearchError, setLocationSearchError] = useState("");
   const [isLocationResolving, setIsLocationResolving] = useState(false);
   const [pageScaleInput, setPageScaleInput] = useState(String(pageScalePercent));
   const wallpaperInputRef = useRef<HTMLInputElement>(null);
+  const settingsFileInputRef = useRef<HTMLInputElement>(null);
   const [scheduleDuration, setScheduleDuration] = useState<CountdownDurationInput>(
     DEFAULT_COUNTDOWN_DURATION_INPUT
   );
@@ -1295,6 +1298,32 @@ function SettingsDialog({
     anchor.click();
     URL.revokeObjectURL(url);
     setSettingsBackupMessage("配置文件已生成。");
+  };
+
+  const handleImportSettingsFromFile = (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result;
+      if (typeof content !== "string") return;
+
+      const importedSettings = parseSettingsBackup(content);
+      if (!importedSettings) {
+        setSettingsBackupMessage("配置文件无效，请检查 JSON 格式后再导入。");
+        return;
+      }
+      onImportSettings(importedSettings);
+      setSettingsBackupMessage("配置文件已导入。");
+    };
+    reader.onerror = () => {
+      setSettingsBackupMessage("读取文件失败，请重试。");
+    };
+    reader.readAsText(file);
+    event.target.value = "";
   };
 
   const handleImportSettingsBackup = () => {
@@ -1800,7 +1829,14 @@ function SettingsDialog({
                             )
                           : HITOKOTO_CATEGORY_OPTIONS;
                         return (
-                          <div className="filter-rule" key={index}>
+                          <div className={`filter-rule${filter.enabled === false ? " filter-rule--disabled" : ""}`} key={index}>
+                            <Switch
+                              className="filter-rule-toggle"
+                              size="small"
+                              checked={filter.enabled !== false}
+                              onChange={(checked) => onQuoteFilterUpdate(index, { enabled: checked })}
+                              aria-label={`${filter.enabled === false ? "启用" : "关闭"} ${filter.source}`}
+                            />
                             <span className="filter-rule-source">{filter.source}</span>
                             <Select
                               aria-label="分类"
@@ -1956,6 +1992,13 @@ function SettingsDialog({
                       </div>
                     )}
                     <div className="settings-backup-actions">
+                      <input
+                        ref={settingsFileInputRef}
+                        type="file"
+                        accept=".json,application/json"
+                        style={{ display: "none" }}
+                        onChange={handleImportSettingsFromFile}
+                      />
                       <MotionButton onClick={handleCopySettingsBackup}>
                         <Copy aria-hidden="true" />
                         复制配置
@@ -1970,6 +2013,12 @@ function SettingsDialog({
                       >
                         <Upload aria-hidden="true" />
                         导入配置
+                      </MotionButton>
+                      <MotionButton
+                        onClick={() => settingsFileInputRef.current?.click()}
+                      >
+                        <Upload aria-hidden="true" />
+                        选择配置文件
                       </MotionButton>
                     </div>
                   </section>
@@ -2586,7 +2635,10 @@ async function fetchFilteredQuote(
   previousQuote?: Quote
 ): Promise<Quote> {
   const allFilters = normalizeQuoteFilters(settings);
-  if (!allFilters.length) throw new Error("no matching quote");
+  if (!allFilters.length) {
+    // No filters enabled: fall back to default Tomke API
+    allFilters.push(DEFAULT_QUOTE_FILTER);
+  }
 
   const tryFilter = async (filter: QuoteFilter): Promise<Quote> => {
     if (filter.apiUrl) {
@@ -2964,6 +3016,7 @@ function normalizeQuoteFilters(settings: AppSettings): QuoteFilter[] {
   // New array format
   if (Array.isArray(settings.quoteFilters) && settings.quoteFilters.length > 0) {
     return settings.quoteFilters
+      .filter((raw) => raw.enabled !== false)
       .map((raw) => {
         const source = cleanQuoteSource(raw.source);
         const apiUrl = typeof raw.apiUrl === "string" ? raw.apiUrl.trim() : undefined;
@@ -2977,7 +3030,7 @@ function normalizeQuoteFilters(settings: AppSettings): QuoteFilter[] {
       })
       .filter((f): f is QuoteFilter => f !== null);
   }
-  // Migrate from old single format
+  // Migrate from old single format (backward compat — no enabled field in old data)
   const single = (settings as unknown as Record<string, unknown>).quoteFilter;
   if (single && typeof single === "object") {
     const record = single as Record<string, unknown>;
@@ -3669,7 +3722,7 @@ function migrateQuoteFilters(parsed: Record<string, unknown>): QuoteFilter[] {
         }
         const search = typeof record.search === "string" ? (record.search as string).trim() : undefined;
         if (!source) return null;
-        return { source, category, ...(apiUrl ? { apiUrl } : {}), ...(search ? { search } : {}) };
+        return { source, category, ...(apiUrl ? { apiUrl } : {}), ...(search ? { search } : {}), ...(typeof record.enabled === "boolean" ? { enabled: record.enabled } : {}) };
       })
       .filter((f): f is QuoteFilter => f !== null);
   }

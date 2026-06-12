@@ -1597,13 +1597,25 @@ button {
 
 .filter-rule {
   display: grid;
-  grid-template-columns: minmax(60px, auto) minmax(80px, 120px) 1fr 28px;
+  grid-template-columns: 32px minmax(60px, auto) minmax(80px, 120px) 1fr 28px;
   gap: 4px;
   align-items: center;
   padding: 4px 6px;
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 9px;
   background: rgba(255, 255, 255, 0.42);
+  transition: opacity 0.2s;
+  will-change: opacity;
+}
+
+.filter-rule--disabled {
+  opacity: 0.45;
+}
+
+.filter-rule-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .filter-rule-source {
