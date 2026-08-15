@@ -340,7 +340,7 @@ const SETTINGS_TAB_OPTIONS: SettingsTabOption[] = [
   { icon: Download, label: "备份", value: "backup" }
 ];
 const DEFAULT_QUOTE_CATEGORY = "";
-const TOMKE_API_BASE = "https://hitokoto.tomsite.us.kg";
+const TOMKE_API_BASE = "https://hitokoto.tomke.me";
 const TOMKE_QUOTES_API = `${TOMKE_API_BASE}/api/quotes/random`;
 const PRESET_QUOTE_FILTERS: QuoteFilter[] = [
   { source: "官方 API", category: DEFAULT_QUOTE_CATEGORY },
